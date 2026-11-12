@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 export default function FloatingCamera({ vision, live }) {
   // ตำแหน่งเริ่มต้น: ขวาบนของจอ
   const [position, setPosition] = useState({ x: 0, y: 90 });
+  const [width, setWidth] = useState(320); // ความกว้างเริ่มต้น 320px (ปรับได้ 220px - 520px)
   const [minimized, setMinimized] = useState(false);
   const [hasInitPos, setHasInitPos] = useState(false);
 
@@ -14,16 +15,22 @@ export default function FloatingCamera({ vision, live }) {
     startPosY: 0,
   });
 
+  const resizeRef = useRef({
+    isResizing: false,
+    startX: 0,
+    startWidth: 320,
+  });
+
   // ตั้งค่าตำแหน่งเริ่มต้นให้อยู่ชิดขวาบนของจอ
   useEffect(() => {
     if (!hasInitPos && typeof window !== 'undefined') {
-      const initX = Math.max(20, window.innerWidth - 320);
+      const initX = Math.max(20, window.innerWidth - 350);
       setPosition({ x: initX, y: 90 });
       setHasInitPos(true);
     }
   }, [hasInitPos]);
 
-  // ระบบลากหน้าต่าง (Mouse & Touch Dragging)
+  // ระบบลากย้ายหน้าต่าง (Drag to Move)
   const handleStartDrag = (clientX, clientY) => {
     dragRef.current = {
       isDragging: true,
@@ -42,7 +49,7 @@ export default function FloatingCamera({ vision, live }) {
       const deltaX = curX - dragRef.current.startX;
       const deltaY = curY - dragRef.current.startY;
 
-      const newX = Math.max(10, Math.min(window.innerWidth - 290, dragRef.current.startPosX + deltaX));
+      const newX = Math.max(10, Math.min(window.innerWidth - width - 10, dragRef.current.startPosX + deltaX));
       const newY = Math.max(10, Math.min(window.innerHeight - 80, dragRef.current.startPosY + deltaY));
 
       setPosition({ x: newX, y: newY });
@@ -62,12 +69,49 @@ export default function FloatingCamera({ vision, live }) {
     window.addEventListener('touchend', handleEnd);
   };
 
+  // ระบบลากขอบเพื่อย่อ/ขยายขนาด (Drag to Resize)
+  const handleStartResize = (clientX, e) => {
+    e.stopPropagation();
+    resizeRef.current = {
+      isResizing: true,
+      startX: clientX,
+      startWidth: width,
+    };
+
+    const handleMove = (ev) => {
+      if (!resizeRef.current.isResizing) return;
+      const curX = ev.clientX ?? ev.touches?.[0]?.clientX;
+      if (curX === undefined) return;
+
+      const deltaX = curX - resizeRef.current.startX;
+      const newW = Math.max(220, Math.min(520, resizeRef.current.startWidth + deltaX));
+      setWidth(newW);
+    };
+
+    const handleEnd = () => {
+      resizeRef.current.isResizing = false;
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleEnd);
+  };
+
   if (!vision.cameraActive) return null;
 
   return (
     <div
-      style={{ left: `${position.x}px`, top: `${position.y}px` }}
-      className={`fixed z-50 w-72 rounded-xl border border-line bg-white/95 shadow-2xl backdrop-blur-md transition-shadow duration-150 select-none ${
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: minimized ? 'auto' : `${width}px`,
+      }}
+      className={`fixed z-50 rounded-xl border border-line bg-white/95 shadow-2xl backdrop-blur-md select-none transition-shadow ${
         dragRef.current.isDragging ? 'cursor-grabbing shadow-3xl ring-2 ring-ink/20' : ''
       }`}
     >
@@ -75,7 +119,7 @@ export default function FloatingCamera({ vision, live }) {
       <div
         onMouseDown={(e) => handleStartDrag(e.clientX, e.clientY)}
         onTouchStart={(e) => handleStartDrag(e.touches[0].clientX, e.touches[0].clientY)}
-        className="flex items-center justify-between border-b border-line/70 px-3 py-2 bg-paper/70 rounded-t-xl cursor-grab active:cursor-grabbing"
+        className="flex items-center justify-between border-b border-line/70 px-3 py-2 bg-paper/80 rounded-t-xl cursor-grab active:cursor-grabbing"
       >
         <div className="flex items-center gap-1.5 text-xs font-medium text-ink">
           {/* ไอคอนจับลาก (Drag Handle) */}
@@ -87,17 +131,50 @@ export default function FloatingCamera({ vision, live }) {
             <circle cx="5" cy="12" r="1.2" />
             <circle cx="11" cy="12" r="1.2" />
           </svg>
-          <span>กล้องลอย (MediaPipe)</span>
+          <span className="font-sans">กล้องลอย</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5" onMouseDown={(e) => e.stopPropagation()}>
+          {/* ปุ่มลัดปรับขนาด 3 ระดับ: S (240px), M (320px), L (440px) */}
+          {!minimized && (
+            <div className="flex items-center rounded-md border border-line/80 bg-white p-0.5 text-[10px] font-mono text-muted">
+              <button
+                onClick={() => setWidth(240)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  width <= 260 ? 'bg-ink text-paper font-semibold' : 'hover:text-ink'
+                }`}
+                title="ขนาดกะทัดรัด (240px)"
+              >
+                S
+              </button>
+              <button
+                onClick={() => setWidth(320)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  width > 260 && width <= 360 ? 'bg-ink text-paper font-semibold' : 'hover:text-ink'
+                }`}
+                title="ขนาดมาตรฐาน (320px)"
+              >
+                M
+              </button>
+              <button
+                onClick={() => setWidth(440)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  width > 360 ? 'bg-ink text-paper font-semibold' : 'hover:text-ink'
+                }`}
+                title="ขนาดใหญ่ (440px)"
+              >
+                L
+              </button>
+            </div>
+          )}
+
           {/* ปุ่มย่อ/ขยายหน้าต่าง */}
           <button
             onClick={() => setMinimized(!minimized)}
             className="flex size-5 items-center justify-center rounded text-muted hover:bg-line/60 hover:text-ink cursor-pointer text-xs"
-            title={minimized ? "ขยายหน้าต่าง" : "ย่อหน้าต่าง"}
+            title={minimized ? 'ขยายหน้าต่าง' : 'ย่อหน้าต่าง'}
           >
-            {minimized ? "▢" : "–"}
+            {minimized ? '▢' : '–'}
           </button>
           {/* ปุ่มปิดกล้อง */}
           <button
@@ -111,9 +188,9 @@ export default function FloatingCamera({ vision, live }) {
         </div>
       </div>
 
-      {/* ถ้าไม่ถูกย่อ ให้แสดงจอกล้องและข้อมูลเต็ม */}
+      {/* เมื่อไม่ถูกย่อ: แสดงภาพกล้อง + เครื่องมือวัด + มุมลากปรับขนาด */}
       {!minimized ? (
-        <div className="p-3 space-y-2.5">
+        <div className="relative p-3 space-y-2.5">
           <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
             <video
               ref={vision.setVideoRef}
@@ -170,6 +247,18 @@ export default function FloatingCamera({ vision, live }) {
               <span>ก้ม/เงย: {vision.poseAngles.pitch}°</span>
               <span>หันซ้าย/ขวา: {vision.poseAngles.yaw}°</span>
             </div>
+          </div>
+
+          {/* มุมขวาล่างสำหรับคลิกลากย่อ/ขยายขนาดได้อย่างอิสระ (Resize Handle) */}
+          <div
+            onMouseDown={(e) => handleStartResize(e.clientX, e)}
+            onTouchStart={(e) => handleStartResize(e.touches[0].clientX, e)}
+            className="absolute bottom-1 right-1 flex size-4 items-end justify-end p-0.5 cursor-nwse-resize text-faint hover:text-ink transition"
+            title="คลิกลากเพื่อปรับขนาดจอกล้องได้อย่างอิสระ"
+          >
+            <svg viewBox="0 0 10 10" className="size-2.5" fill="currentColor">
+              <path d="M9 1v8H1l8-8zm-4 8h4V5l-4 4z" />
+            </svg>
           </div>
         </div>
       ) : (
