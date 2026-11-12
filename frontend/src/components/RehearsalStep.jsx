@@ -248,7 +248,7 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
                     disabled={vision.modelLoading || live}
                     className="flex items-center gap-1 text-[11px] font-medium text-ink bg-white border border-line rounded px-2.5 py-1 hover:border-faint transition cursor-pointer disabled:opacity-40"
                   >
-                    {vision.modelLoading ? 'กำลังโหลดโมเดล…' : '📷 เปิดกล้อง (หน้าต่างลอย)'}
+                    {vision.modelLoading ? 'กำลังโหลดโมเดล…' : '📷 เปิดกล้อง'}
                   </button>
                 )}
               </div>

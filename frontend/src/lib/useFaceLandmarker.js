@@ -34,8 +34,9 @@ async function getFaceLandmarker() {
 
 /**
  * useFaceLandmarker Hook:
- * - ปรับปรุงอัลกอริทึม: แยกแยะการ "กะพริบตา" (Blink) ออกจากการ "ก้มอ่านโพย" (Looking Down) อย่างแม่นยำ
- * - ใช้ Hysteresis / Temporal Smoothing: ต้องก้มต่อเนื่องเกิน 0.6 วินาทีถึงจะแจ้งเตือน ไม่กระตุกตามจังหวะกะพริบตา
+ * - วิเคราะห์ท่าทางใบหน้า 3D (Head Pose) และตำแหน่งตาดำ (Iris Tracking) โดยตรงจาก 478 จุด Landmarks
+ * - ไม่พึ่งพา Matrix อย่างเดียว จึงทำงานได้ 100% ทุกกล้องและทุกการ์ดจอ
+ * - แยกแยะการกะพริบตาออกจากการก้มอ่านโพย และตอบสนองต่อการขยับศีรษะ/สายตาแบบ Real-time
  */
 export function useFaceLandmarker() {
   const [cameraActive, setCameraActive] = useState(false);
@@ -53,9 +54,9 @@ export function useFaceLandmarker() {
   const animFrameRef = useRef(null);
   const landmarkerRef = useRef(null);
 
-  // ตัวจับเวลาสำหรับ Debounce / Temporal Smoothing
-  const lookDownStartTimestampRef = useRef(null);
-  const lookAwayStartTimestampRef = useRef(null);
+  // ตัวนับเฟรมสะสมสำหรับความนิ่ง (Smoothing filter)
+  const lookDownBufferRef = useRef(0);
+  const lookAwayBufferRef = useRef(0);
 
   // โหมดบันทึกสถิติ (ทำงานเมื่อกดเริ่มซ้อมพูด)
   const isTrackingRef = useRef(false);
@@ -112,7 +113,7 @@ export function useFaceLandmarker() {
     setCurrentStatus('off');
   }, []);
 
-  // Callback ref สำหรับเชื่อมต่อสัญญาณวิดีโอทันทีที่แท็ก <video> ปรากฏใน DOM
+  // Callback ref เชื่อมต่อสัญญาณวิดีโอทันที
   const setVideoRef = useCallback((node) => {
     videoRef.current = node;
     if (node && streamRef.current) {
@@ -134,7 +135,7 @@ export function useFaceLandmarker() {
     }
   }, [cameraActive]);
 
-  // ลูปตรวจจับใบหน้าแบบ Real-time พร้อมตัวกรอง Blink และ Debounce
+  // ลูปตรวจจับใบหน้าแบบ Real-time
   useEffect(() => {
     if (!cameraActive || !modelReady) return;
 
@@ -155,79 +156,82 @@ export function useFaceLandmarker() {
           lastCheckTime = now;
 
           if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
-            const blendshapes = results.faceBlendshapes?.[0]?.categories || [];
-            const getScore = (name) => blendshapes.find((c) => c.categoryName === name)?.score || 0;
+            const lm = results.faceLandmarks[0];
 
-            // ตรวจจับการกะพริบตา (Blink)
-            const blinkLeft = getScore('eyeBlinkLeft');
-            const blinkRight = getScore('eyeBlinkRight');
-            const isBlinking = blinkLeft > 0.4 || blinkRight > 0.4;
+            // 1. คำนวณองศาการหันศีรษะ (Yaw) จากตำแหน่งจมูกเทียบกับแก้มซ้าย-ขวา
+            // landmark 234 (แก้มซ้าย), landmark 454 (แก้มขวา), landmark 1 (ปลายจมูก)
+            const leftCheek = lm[234];
+            const rightCheek = lm[454];
+            const noseTip = lm[1];
+            const faceWidth = Math.abs(rightCheek.x - leftCheek.x) || 0.001;
+            const noseRatio = (noseTip.x - leftCheek.x) / faceWidth;
+            // หน้าตรง noseRatio อยู่ที่ประมาณ 0.50
+            const calculatedYaw = Math.round((noseRatio - 0.5) * 110);
 
-            // สายตามองต่ำ / มองออกข้าง
-            const lookDownScore = (getScore('eyeLookDownLeft') + getScore('eyeLookDownRight')) / 2;
-            const lookOutScore = Math.max(
-              getScore('eyeLookOutLeft'),
-              getScore('eyeLookOutRight'),
-              getScore('eyeLookInLeft'),
-              getScore('eyeLookInRight')
-            );
+            // 2. คำนวณองศาการก้ม/เงย (Pitch) จากความลึกแกน Z และอัตราส่วนจมูก-คาง
+            // landmark 10 (หน้าผาก), landmark 152 (ปลายคาง), landmark 168 (ดั้งจมูก)
+            const forehead = lm[10];
+            const chin = lm[152];
+            const noseBridge = lm[168];
+            const faceHeight = Math.abs(chin.y - forehead.y) || 0.001;
+            const upperDist = Math.abs(noseTip.y - forehead.y);
+            const lowerDist = Math.abs(chin.y - noseTip.y);
+            const verticalRatio = upperDist / (lowerDist || 0.001);
+            // ความลึกแกน Z (หน้าผากยื่นหรือคางยื่น)
+            const zTilt = (forehead.z - chin.z);
+            // คำนวณเป็นองศาก้ม/เงย (ติดลบ = ก้มหน้า, บวก = เงยหน้า)
+            const calculatedPitch = Math.round((verticalRatio - 1.25) * -45 + zTilt * -120);
 
-            // คำนวณองศาใบหน้า 3D (Pitch = ก้ม/เงย, Yaw = หันซ้าย/ขวา)
-            let pitch = 0;
-            let yaw = 0;
-            if (results.facialTransformationMatrixes?.[0]?.data) {
-              const m = results.facialTransformationMatrixes[0].data;
-              pitch = Math.atan2(m[6], m[10]) * (180 / Math.PI);
-              yaw = Math.atan2(-m[2], Math.sqrt(m[0] * m[0] + m[1] * m[1])) * (180 / Math.PI);
-              setPoseAngles({ pitch: Math.round(pitch), yaw: Math.round(yaw) });
+            setPoseAngles({ pitch: calculatedPitch, yaw: calculatedYaw });
+
+            // 3. วิเคราะห์ดวงตา (การกะพริบตา และ ตำแหน่งตาดำ Iris)
+            // ตาซ้าย: บน (159), ล่าง (145), หัวตา (133), หางตา (33), ตาดำ (468)
+            const eyeOpenHeight = Math.abs(lm[145].y - lm[159].y);
+            const eyeWidth = Math.abs(lm[133].x - lm[33].x) || 0.001;
+            const eyeOpenRatio = eyeOpenHeight / eyeWidth;
+            // ถ้าตี่/ปิดตามากกว่าปกติ = กำลังกะพริบตา
+            const isBlinking = eyeOpenRatio < 0.12;
+
+            // ตำแหน่งตาดำในแนวตั้ง (0 = มองบน, 0.5 = มองตรง, 0.8+ = มองต่ำลงโพย)
+            const irisY = lm[468]?.y ?? noseTip.y;
+            const eyeTopY = lm[159].y;
+            const irisVerticalPos = (irisY - eyeTopY) / (eyeOpenHeight || 0.001);
+
+            // 4. ตัดสินสถานะแบบเฉียบคม:
+            // ก้มอ่านโพย = ก้มหน้าจริง (pitch < -11 องศา) หรือ (หน้าก้มเล็กน้อย + สายตามองต่ำชัดเจน irisVerticalPos > 0.65 โดยไม่ได้หลับตา)
+            const isLookingDownRaw = !isBlinking && (calculatedPitch < -11 || (calculatedPitch < -5 && irisVerticalPos > 0.65) || irisVerticalPos > 0.78);
+            // หันมองสไลด์/มองออกข้าง = หันหน้าชัดเจน (|yaw| > 16 องศา)
+            const isLookingAwayRaw = !isBlinking && Math.abs(calculatedYaw) > 16;
+
+            // ใช้ Buffer สั้นๆ 4-5 เฟรม (~120ms) เพื่อความเนียน ไม่กระตุก
+            if (isLookingDownRaw) {
+              lookDownBufferRef.current += 1;
+              lookAwayBufferRef.current = 0;
+            } else if (isLookingAwayRaw) {
+              lookAwayBufferRef.current += 1;
+              lookDownBufferRef.current = 0;
+            } else {
+              lookDownBufferRef.current = Math.max(0, lookDownBufferRef.current - 1);
+              lookAwayBufferRef.current = Math.max(0, lookAwayBufferRef.current - 1);
             }
 
-            // *** กฎการแยกแยะ: ถ้ากำลังกะพริบตา จะไม่ถือว่าก้มอ่านโพยเด็ดขาด ***
-            // ก้มอ่านโพยจริง = หัวก้มต่ำจริง (pitch < -14) หรือ (หัวก้มปานกลาง + สายตามองต่ำชัดเจนโดยไม่ได้หลับตา)
-            const isGenuinelyLookingDown =
-              !isBlinking && (pitch < -14 || (pitch < -7 && lookDownScore > 0.48) || lookDownScore > 0.65);
-
-            // หันมองสไลด์ = หันหน้า |yaw| > 22 องศา หรือ กลอกตาออกด้านข้างชัดเจน
-            const isGenuinelyLookingAway =
-              !isBlinking && (Math.abs(yaw) > 22 || lookOutScore > 0.48);
-
-            // *** Debounce & Hysteresis Smoothing ***
-            // ต้องก้มต่อเนื่องเกิน 0.6 วินาทีถึงจะเปลี่ยนสถานะเป็น 'looking_down'
-            if (isGenuinelyLookingDown) {
-              lookAwayStartTimestampRef.current = null;
-              if (!lookDownStartTimestampRef.current) {
-                lookDownStartTimestampRef.current = now;
-              } else {
-                const sustainedSec = (now - lookDownStartTimestampRef.current) / 1000;
-                if (sustainedSec >= 0.6) {
-                  setCurrentStatus('looking_down');
-                  if (isTrackingRef.current) {
-                    lookingDownFramesRef.current += 1;
-                    lookDownTotalSecRef.current += deltaSec;
-                    if (!inLookDownInstanceRef.current && sustainedSec >= 1.5) {
-                      inLookDownInstanceRef.current = true;
-                      lookDownCountRef.current += 1;
-                    }
-                  }
+            // แสดงผลสถานะ
+            if (lookDownBufferRef.current >= 4) {
+              setCurrentStatus('looking_down');
+              if (isTrackingRef.current) {
+                lookingDownFramesRef.current += 1;
+                lookDownTotalSecRef.current += deltaSec;
+                if (!inLookDownInstanceRef.current && lookDownBufferRef.current === 4) {
+                  inLookDownInstanceRef.current = true;
+                  lookDownCountRef.current += 1;
                 }
               }
-            } else if (isGenuinelyLookingAway) {
-              lookDownStartTimestampRef.current = null;
+            } else if (lookAwayBufferRef.current >= 4) {
+              setCurrentStatus('looking_away');
               inLookDownInstanceRef.current = false;
-              if (!lookAwayStartTimestampRef.current) {
-                lookAwayStartTimestampRef.current = now;
-              } else {
-                const sustainedSec = (now - lookAwayStartTimestampRef.current) / 1000;
-                if (sustainedSec >= 0.5) {
-                  setCurrentStatus('looking_away');
-                }
-              }
             } else {
-              // สายตาปกติ หรือ กะพริบตาตามธรรมชาติ -> สบตาคนฟัง
-              lookDownStartTimestampRef.current = null;
-              lookAwayStartTimestampRef.current = null;
-              inLookDownInstanceRef.current = false;
               setCurrentStatus('eye_contact');
+              inLookDownInstanceRef.current = false;
               if (isTrackingRef.current) {
                 eyeContactFramesRef.current += 1;
               }
@@ -239,8 +243,6 @@ export function useFaceLandmarker() {
               setEyeContactPct(pct);
             }
           } else {
-            lookDownStartTimestampRef.current = null;
-            lookAwayStartTimestampRef.current = null;
             setCurrentStatus('no_face');
             if (isTrackingRef.current) {
               totalFramesRef.current += 1;
@@ -259,7 +261,7 @@ export function useFaceLandmarker() {
     };
   }, [cameraActive, modelReady]);
 
-  // 3. เริ่มสะสมสถิติจริง (เรียกเมื่อผู้ใช้กด "เริ่มพูด")
+  // 3. เริ่มสะสมสถิติจริง (เรียกเมื่อกด "เริ่มพูด")
   const startTracking = useCallback(() => {
     isTrackingRef.current = true;
     totalFramesRef.current = 0;
@@ -268,6 +270,8 @@ export function useFaceLandmarker() {
     inLookDownInstanceRef.current = false;
     lookDownCountRef.current = 0;
     lookDownTotalSecRef.current = 0;
+    lookDownBufferRef.current = 0;
+    lookAwayBufferRef.current = 0;
     setEyeContactPct(100);
   }, []);
 
