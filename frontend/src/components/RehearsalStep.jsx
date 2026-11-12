@@ -141,6 +141,7 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
     const duration = (Date.now() - startedAt.current) / 1000;
     speech.stop();
     const recResult = await recorder.stop();
+    console.log('[RehearsalStep] recorded audioUrl:', recResult.audioUrl);
 
     onResult(index, {
       ...analyze(transcript, duration),

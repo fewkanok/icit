@@ -1,5 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+function getSupportedMimeType() {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return '';
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+    'audio/aac',
+  ];
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+      return t;
+    }
+  }
+  return '';
+}
+
 /**
  * useAudioRecorder:
  * - บันทึกเสียงลง RAM (Blob URL) ให้กดฟังย้อนหลังได้ทันที โดยไม่ต้องขึ้น Cloud
@@ -43,7 +60,9 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       analyserRef.current = analyser;
 
       // 2. ตั้งค่า MediaRecorder เพื่ออัดเสียงเก็บใน RAM
-      const mediaRecorder = new MediaRecorder(stream);
+      const mimeType = getSupportedMimeType();
+      const options = mimeType ? { mimeType } : {};
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -53,7 +72,9 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
         }
       };
 
-      mediaRecorder.start();
+      // ส่ง timeslice 200ms เพื่อให้เก็บ chunks เป็นระยะสม่ำเสมอ
+      mediaRecorder.start(200);
+
       setRecording(true);
       setAudioUrl(null);
       setIsDeadAir(false);
@@ -68,7 +89,8 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       let lastCheckTime = Date.now();
 
       const checkAudio = () => {
-        analyser.getByteFrequencyData(dataArray);
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
 
         // คำนวณความดังเฉลี่ย (Volume 0 ถึง 1)
         let sum = 0;
@@ -88,7 +110,7 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
             silenceStartRef.current = now;
           } else {
             const silentSec = (now - silenceStartRef.current) / 1000;
-            // เงียบเกิน 2.5 วินาที -> เริ่มนับเป็น Dead Air
+            // เงียบเกิน deadAirLimitSec -> เริ่มนับเป็น Dead Air
             if (silentSec >= deadAirLimitSec) {
               if (!inDeadAirRef.current) {
                 inDeadAirRef.current = true;
@@ -116,58 +138,82 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
 
       checkAudio();
     } catch (err) {
-      console.error("Audio recorder start error:", err);
+      console.error("[useAudioRecorder] Audio recorder start error:", err);
     }
   }, [silenceThreshold, deadAirLimitSec]);
 
   const stop = useCallback(() => {
     return new Promise((resolve) => {
-      // หยุดแอนิเมชันตรวจเสียง
+      // 1. หยุดแอนิเมชันตรวจจับเสียง
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
       }
       setIsDeadAir(false);
       setVolume(0);
 
-      // ปิด AudioContext
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {});
-      }
-
-      // หยุด Stream ไมโครโฟน
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-
-      // หยุด MediaRecorder และรวมไฟล์เป็น Blob URL
       const recorder = mediaRecorderRef.current;
-      if (recorder && recorder.state !== 'inactive') {
-        recorder.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const url = URL.createObjectURL(blob);
-          setAudioUrl(url);
-          setRecording(false);
-          resolve({
-            audioUrl: url,
-            audioBlob: blob,
-            deadAir: {
-              count: deadAirCountRef.current,
-              totalSeconds: Math.round(deadAirTotalSecRef.current * 10) / 10,
-            },
-          });
-        };
-        recorder.stop();
-      } else {
+
+      const cleanupHardware = () => {
+        // หยุด Stream ไมโครโฟน
+        if (streamRef.current) {
+          try {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+          } catch (_) {}
+          streamRef.current = null;
+        }
+
+        // ปิด AudioContext
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close().catch(() => {});
+          audioContextRef.current = null;
+        }
+      };
+
+      const finalizeResult = () => {
+        cleanupHardware();
+
+        const mime = recorder?.mimeType || getSupportedMimeType() || 'audio/webm';
+        let url = null;
+        let blob = null;
+
+        if (audioChunksRef.current.length > 0) {
+          blob = new Blob(audioChunksRef.current, { type: mime });
+          url = URL.createObjectURL(blob);
+          console.log('[useAudioRecorder] Audio saved to RAM. Size:', blob.size, 'bytes, URL:', url);
+        } else {
+          console.warn('[useAudioRecorder] No audio chunks recorded!');
+        }
+
+        setAudioUrl(url);
         setRecording(false);
         resolve({
-          audioUrl: null,
-          deadAir: { count: 0, totalSeconds: 0 },
+          audioUrl: url,
+          audioBlob: blob,
+          deadAir: {
+            count: deadAirCountRef.current,
+            totalSeconds: Math.round(deadAirTotalSecRef.current * 10) / 10,
+          },
         });
+      };
+
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.onstop = () => {
+          finalizeResult();
+        };
+        try {
+          recorder.stop();
+        } catch (e) {
+          console.error('[useAudioRecorder] recorder.stop() exception:', e);
+          finalizeResult();
+        }
+      } else {
+        finalizeResult();
       }
     });
   }, []);
 
-  // คลีนอัพหน่วยความจำเมื่อ Component ถูกปิด
+  // คลีนอัพ Stream และ AudioContext เมื่อถอด Hook (ไม่สั่ง revoke URL ที่ผู้ใช้ต้องนำไปฟัง)
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
@@ -177,11 +223,8 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
     };
-  }, [audioUrl]);
+  }, []);
 
   return {
     recording,

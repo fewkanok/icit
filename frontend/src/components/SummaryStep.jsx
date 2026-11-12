@@ -21,6 +21,21 @@ export default function SummaryStep({
   const audioRef = useRef(null);
   const [playingIndex, setPlayingIndex] = useState(null); // หน้าที่กำลังเล่นเสียงอยู่
   const [isPlayAll, setIsPlayAll] = useState(false); // โหมดเล่นต่อเนื่องทั้งหมด
+  const [volume, setVolume] = useState(1.0); // ระดับเสียง 0.0 - 1.0
+
+  const handleVolumeChange = (newVol) => {
+    const clamped = Math.max(0, Math.min(1, newVol));
+    setVolume(clamped);
+    if (audioRef.current) {
+      audioRef.current.volume = clamped;
+    }
+  };
+
+  const handleNativeVolumeChange = () => {
+    if (audioRef.current) {
+      setVolume(audioRef.current.volume);
+    }
+  };
 
   // สำหรับการแก้ไขข้อความ
   const [editingIndex, setEditingIndex] = useState(null);
@@ -28,7 +43,11 @@ export default function SummaryStep({
 
   // ฟังก์ชันเล่นเสียงของสไลด์หน้านั้น
   const playSlide = (idx) => {
-    if (!results[idx]?.audioUrl) return;
+    const url = results[idx]?.audioUrl;
+    if (!url) {
+      console.warn('[SummaryStep] No audioUrl for slide', idx);
+      return;
+    }
 
     if (playingIndex === idx && audioRef.current && !audioRef.current.paused) {
       audioRef.current.pause();
@@ -40,8 +59,14 @@ export default function SummaryStep({
     setIsPlayAll(false);
     setPlayingIndex(idx);
     if (audioRef.current) {
-      audioRef.current.src = results[idx].audioUrl;
-      audioRef.current.play();
+      audioRef.current.volume = volume;
+      audioRef.current.pause();
+      audioRef.current.src = url;
+      audioRef.current.load();
+      audioRef.current.play().catch((err) => {
+        console.error('[SummaryStep] Play slide error:', err);
+        setPlayingIndex(null);
+      });
     }
   };
 
@@ -60,8 +85,15 @@ export default function SummaryStep({
       setIsPlayAll(true);
       setPlayingIndex(firstIndex);
       if (audioRef.current) {
+        audioRef.current.volume = volume;
+        audioRef.current.pause();
         audioRef.current.src = results[firstIndex].audioUrl;
-        audioRef.current.play();
+        audioRef.current.load();
+        audioRef.current.play().catch((err) => {
+          console.error('[SummaryStep] Play all error:', err);
+          setIsPlayAll(false);
+          setPlayingIndex(null);
+        });
       }
     }
   };
@@ -81,8 +113,15 @@ export default function SummaryStep({
       if (nextIndex !== -1) {
         setPlayingIndex(nextIndex);
         if (audioRef.current) {
+          audioRef.current.volume = volume;
+          audioRef.current.pause();
           audioRef.current.src = results[nextIndex].audioUrl;
-          audioRef.current.play();
+          audioRef.current.load();
+          audioRef.current.play().catch((err) => {
+            console.error('[SummaryStep] Next slide play error:', err);
+            setIsPlayAll(false);
+            setPlayingIndex(null);
+          });
         }
       } else {
         // เล่นครบทุกหน้าแล้ว
@@ -110,42 +149,98 @@ export default function SummaryStep({
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
-      {/* ซ่อน element เสียงสำหรับระบบเล่นเสียง */}
-      <audio ref={audioRef} onEnded={handleAudioEnded} className="hidden" />
-
       {/* หัวข้อสรุปผล */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">สรุปการซ้อม</h1>
-          <p className="mt-1 text-sm text-muted">{deck.name}</p>
-        </div>
-
-        {/* ปุ่มฟังเสียงทั้งหมดแบบต่อเนื่อง */}
-        {hasAnyAudio && (
-          <button
-            onClick={handlePlayAll}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition cursor-pointer ${
-              isPlayAll
-                ? 'bg-accent text-white hover:bg-accent/90'
-                : 'bg-ink text-paper hover:bg-ink/85'
-            }`}
-          >
-            {isPlayAll ? (
-              <>
-                <span className="size-2 rounded-[1px] bg-white" />
-                <span>หยุดเล่นต่อเนื่อง (หน้า {playingIndex + 1})</span>
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 16 16" className="size-4" fill="currentColor">
-                  <path d="M4.5 3.5v9l8-4.5-8-4.5z" />
-                </svg>
-                <span>ฟังทั้งหมดแบบต่อกัน</span>
-              </>
-            )}
-          </button>
-        )}
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">สรุปการซ้อม</h1>
+        <p className="mt-1 text-sm text-muted">{deck.name}</p>
       </div>
+
+      {/* แถบควบคุมการฟังเสียงทั้งหมดแบบต่อเนื่อง พร้อมปรับลด-เพิ่มเสียง */}
+      {hasAnyAudio && (
+        <div className="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-xl border border-line bg-white p-4 shadow-xs">
+          {/* ฝั่งซ้าย: ปุ่มเริ่ม/หยุดเล่นต่อเนื่อง + สถานะ */}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handlePlayAll}
+              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition cursor-pointer ${
+                isPlayAll
+                  ? 'bg-accent text-white shadow-xs hover:bg-accent/90'
+                  : 'bg-ink text-paper hover:bg-ink/85'
+              }`}
+            >
+              {isPlayAll ? (
+                <>
+                  <span className="size-2 rounded-[1px] bg-white animate-pulse" />
+                  <span>หยุดเล่นต่อเนื่อง</span>
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 16 16" className="size-4" fill="currentColor">
+                    <path d="M4.5 3.5v9l8-4.5-8-4.5z" />
+                  </svg>
+                  <span>ฟังทั้งหมดแบบต่อกัน</span>
+                </>
+              )}
+            </button>
+
+            {playingIndex !== null && (
+              <span className="flex items-center gap-1.5 text-xs font-mono text-muted">
+                <span className="size-1.5 rounded-full bg-accent animate-ping" />
+                กำลังเล่นหน้า <span className="font-semibold text-ink">{playingIndex + 1}</span> / {deck.slides.length}
+              </span>
+            )}
+          </div>
+
+          {/* ฝั่งขวา: เครื่องเล่นเสียงแบบเห็นตัวควบคุม + แถบปรับระดับเสียง (Volume Slider) */}
+          <div className="flex flex-wrap items-center gap-3">
+            <audio
+              ref={audioRef}
+              controls
+              onEnded={handleAudioEnded}
+              onVolumeChange={handleNativeVolumeChange}
+              className="h-8 max-w-[210px] sm:max-w-[240px]"
+            />
+
+            {/* แถบเลื่อนปรับลด/เพิ่มเสียง พร้อมตัวเลข % */}
+            <div className="flex items-center gap-2 rounded-lg border border-line/80 bg-paper px-3 py-1.5 text-xs">
+              <button
+                onClick={() => handleVolumeChange(volume === 0 ? 0.8 : 0)}
+                className="text-muted hover:text-ink transition cursor-pointer"
+                title={volume === 0 ? "เปิดเสียง" : "ปิดเสียง (Mute)"}
+              >
+                {volume === 0 ? (
+                  <svg viewBox="0 0 16 16" className="size-4 text-accent" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2 2l12 12M7.5 4.5L5 6.5H2.5v3H5l2.5 2V4.5z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : volume < 0.5 ? (
+                  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M7.5 4L4.5 6.5H2v3h2.5L7.5 12V4zM10 6.5a2.5 2.5 0 0 1 0 3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M7.5 4L4.5 6.5H2v3h2.5L7.5 12V4zM10.5 5a4.5 4.5 0 0 1 0 6M12.5 3a7.5 7.5 0 0 1 0 10" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </button>
+
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={volume}
+                onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                className="w-16 sm:w-20 accent-ink cursor-pointer h-1.5"
+                title={`ระดับเสียง: ${Math.round(volume * 100)}%`}
+              />
+
+              <span className="w-7 font-mono text-[11px] tabular-nums text-muted text-right">
+                {Math.round(volume * 100)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* สถิติรวม 3 ช่อง */}
       <div className="mt-8 grid grid-cols-3 divide-x divide-line rounded-xl border border-line bg-white">
@@ -259,31 +354,34 @@ export default function SummaryStep({
 
               {/* แถบปุ่ม Action ด้านล่างของสไลด์นี้ */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3 text-xs">
-                {/* ฝั่งซ้าย: ปุ่มฟังเสียงคลิปหน้านี้ */}
-                <div className="flex items-center gap-2">
+                {/* ฝั่งซ้าย: ปุ่มฟังเสียงคลิปหน้านี้ และ Audio Player */}
+                <div className="flex flex-wrap items-center gap-2">
                   {r?.audioUrl ? (
-                    <button
-                      onClick={() => playSlide(i)}
-                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition cursor-pointer ${
-                        isPlayingThis
-                          ? 'bg-accent text-white'
-                          : 'border border-line bg-white hover:border-faint text-ink'
-                      }`}
-                    >
-                      {isPlayingThis ? (
-                        <>
-                          <span className="size-2 rounded-[1px] bg-white" />
-                          <span>หยุดฟัง</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor">
-                            <path d="M4 3.5v9l8-4.5-8-4.5z" />
-                          </svg>
-                          <span>ฟังคลิปหน้านี้</span>
-                        </>
-                      )}
-                    </button>
+                    <>
+                      <button
+                        onClick={() => playSlide(i)}
+                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition cursor-pointer ${
+                          isPlayingThis
+                            ? 'bg-accent text-white shadow-xs'
+                            : 'border border-line bg-white hover:border-faint text-ink'
+                        }`}
+                      >
+                        {isPlayingThis ? (
+                          <>
+                            <span className="size-2 rounded-[1px] bg-white animate-pulse" />
+                            <span>หยุดฟัง</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor">
+                              <path d="M4 3.5v9l8-4.5-8-4.5z" />
+                            </svg>
+                            <span>ฟังคลิปหน้านี้</span>
+                          </>
+                        )}
+                      </button>
+                      <audio controls src={r.audioUrl} className="h-7 w-48 sm:w-56" />
+                    </>
                   ) : (
                     <span className="text-faint italic text-[11px]">ไม่มีไฟล์เสียง</span>
                   )}
