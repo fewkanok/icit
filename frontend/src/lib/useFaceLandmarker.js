@@ -34,7 +34,8 @@ async function getFaceLandmarker() {
 
 /**
  * useFaceLandmarker Hook:
- * - จัดการกล้องเว็บแคมและประมวลผล Face Mesh + Eye Contact สด 100% ในเบราว์เซอร์
+ * - ปรับปรุงอัลกอริทึม: แยกแยะการ "กะพริบตา" (Blink) ออกจากการ "ก้มอ่านโพย" (Looking Down) อย่างแม่นยำ
+ * - ใช้ Hysteresis / Temporal Smoothing: ต้องก้มต่อเนื่องเกิน 0.6 วินาทีถึงจะแจ้งเตือน ไม่กระตุกตามจังหวะกะพริบตา
  */
 export function useFaceLandmarker() {
   const [cameraActive, setCameraActive] = useState(false);
@@ -52,14 +53,17 @@ export function useFaceLandmarker() {
   const animFrameRef = useRef(null);
   const landmarkerRef = useRef(null);
 
+  // ตัวจับเวลาสำหรับ Debounce / Temporal Smoothing
+  const lookDownStartTimestampRef = useRef(null);
+  const lookAwayStartTimestampRef = useRef(null);
+
   // โหมดบันทึกสถิติ (ทำงานเมื่อกดเริ่มซ้อมพูด)
   const isTrackingRef = useRef(false);
   const totalFramesRef = useRef(0);
   const eyeContactFramesRef = useRef(0);
   const lookingDownFramesRef = useRef(0);
-  const inLookDownRef = useRef(false);
+  const inLookDownInstanceRef = useRef(false);
   const lookDownCountRef = useRef(0);
-  const lookDownStartTimeRef = useRef(null);
   const lookDownTotalSecRef = useRef(0);
 
   // 1. เปิดกล้องเว็บแคม
@@ -108,7 +112,7 @@ export function useFaceLandmarker() {
     setCurrentStatus('off');
   }, []);
 
-  // เชื่อมต่อ Stream เข้ากับ <video> ทันทีที่ Element ถูก Mount ใน DOM
+  // Callback ref สำหรับเชื่อมต่อสัญญาณวิดีโอทันทีที่แท็ก <video> ปรากฏใน DOM
   const setVideoRef = useCallback((node) => {
     videoRef.current = node;
     if (node && streamRef.current) {
@@ -130,7 +134,7 @@ export function useFaceLandmarker() {
     }
   }, [cameraActive]);
 
-  // ลูปตรวจจับใบหน้าแบบ Real-time ทำงานตลอดเวลาที่เปิดกล้อง
+  // ลูปตรวจจับใบหน้าแบบ Real-time พร้อมตัวกรอง Blink และ Debounce
   useEffect(() => {
     if (!cameraActive || !modelReady) return;
 
@@ -154,6 +158,12 @@ export function useFaceLandmarker() {
             const blendshapes = results.faceBlendshapes?.[0]?.categories || [];
             const getScore = (name) => blendshapes.find((c) => c.categoryName === name)?.score || 0;
 
+            // ตรวจจับการกะพริบตา (Blink)
+            const blinkLeft = getScore('eyeBlinkLeft');
+            const blinkRight = getScore('eyeBlinkRight');
+            const isBlinking = blinkLeft > 0.4 || blinkRight > 0.4;
+
+            // สายตามองต่ำ / มองออกข้าง
             const lookDownScore = (getScore('eyeLookDownLeft') + getScore('eyeLookDownRight')) / 2;
             const lookOutScore = Math.max(
               getScore('eyeLookOutLeft'),
@@ -162,6 +172,7 @@ export function useFaceLandmarker() {
               getScore('eyeLookInRight')
             );
 
+            // คำนวณองศาใบหน้า 3D (Pitch = ก้ม/เงย, Yaw = หันซ้าย/ขวา)
             let pitch = 0;
             let yaw = 0;
             if (results.facialTransformationMatrixes?.[0]?.data) {
@@ -171,48 +182,65 @@ export function useFaceLandmarker() {
               setPoseAngles({ pitch: Math.round(pitch), yaw: Math.round(yaw) });
             }
 
-            const isLookingDown = pitch < -10 || lookDownScore > 0.35;
-            const isLookingAway = Math.abs(yaw) > 18 || lookOutScore > 0.4;
+            // *** กฎการแยกแยะ: ถ้ากำลังกะพริบตา จะไม่ถือว่าก้มอ่านโพยเด็ดขาด ***
+            // ก้มอ่านโพยจริง = หัวก้มต่ำจริง (pitch < -14) หรือ (หัวก้มปานกลาง + สายตามองต่ำชัดเจนโดยไม่ได้หลับตา)
+            const isGenuinelyLookingDown =
+              !isBlinking && (pitch < -14 || (pitch < -7 && lookDownScore > 0.48) || lookDownScore > 0.65);
 
-            if (isLookingDown) {
-              setCurrentStatus('looking_down');
-              if (isTrackingRef.current) {
-                lookingDownFramesRef.current += 1;
-                totalFramesRef.current += 1;
-                if (!inLookDownRef.current) {
-                  inLookDownRef.current = true;
-                  lookDownStartTimeRef.current = now;
-                } else {
-                  const dur = (now - lookDownStartTimeRef.current) / 1000;
-                  if (dur >= 1.5 && lookDownStartTimeRef.current !== null) {
-                    lookDownCountRef.current += 1;
-                    lookDownStartTimeRef.current = null;
+            // หันมองสไลด์ = หันหน้า |yaw| > 22 องศา หรือ กลอกตาออกด้านข้างชัดเจน
+            const isGenuinelyLookingAway =
+              !isBlinking && (Math.abs(yaw) > 22 || lookOutScore > 0.48);
+
+            // *** Debounce & Hysteresis Smoothing ***
+            // ต้องก้มต่อเนื่องเกิน 0.6 วินาทีถึงจะเปลี่ยนสถานะเป็น 'looking_down'
+            if (isGenuinelyLookingDown) {
+              lookAwayStartTimestampRef.current = null;
+              if (!lookDownStartTimestampRef.current) {
+                lookDownStartTimestampRef.current = now;
+              } else {
+                const sustainedSec = (now - lookDownStartTimestampRef.current) / 1000;
+                if (sustainedSec >= 0.6) {
+                  setCurrentStatus('looking_down');
+                  if (isTrackingRef.current) {
+                    lookingDownFramesRef.current += 1;
+                    lookDownTotalSecRef.current += deltaSec;
+                    if (!inLookDownInstanceRef.current && sustainedSec >= 1.5) {
+                      inLookDownInstanceRef.current = true;
+                      lookDownCountRef.current += 1;
+                    }
                   }
                 }
-                lookDownTotalSecRef.current += deltaSec;
               }
-            } else if (isLookingAway) {
-              setCurrentStatus('looking_away');
-              if (isTrackingRef.current) {
-                totalFramesRef.current += 1;
-                inLookDownRef.current = false;
-                lookDownStartTimeRef.current = null;
+            } else if (isGenuinelyLookingAway) {
+              lookDownStartTimestampRef.current = null;
+              inLookDownInstanceRef.current = false;
+              if (!lookAwayStartTimestampRef.current) {
+                lookAwayStartTimestampRef.current = now;
+              } else {
+                const sustainedSec = (now - lookAwayStartTimestampRef.current) / 1000;
+                if (sustainedSec >= 0.5) {
+                  setCurrentStatus('looking_away');
+                }
               }
             } else {
+              // สายตาปกติ หรือ กะพริบตาตามธรรมชาติ -> สบตาคนฟัง
+              lookDownStartTimestampRef.current = null;
+              lookAwayStartTimestampRef.current = null;
+              inLookDownInstanceRef.current = false;
               setCurrentStatus('eye_contact');
               if (isTrackingRef.current) {
                 eyeContactFramesRef.current += 1;
-                totalFramesRef.current += 1;
-                inLookDownRef.current = false;
-                lookDownStartTimeRef.current = null;
               }
             }
 
-            if (isTrackingRef.current && totalFramesRef.current > 0) {
+            if (isTrackingRef.current) {
+              totalFramesRef.current += 1;
               const pct = Math.round((eyeContactFramesRef.current / totalFramesRef.current) * 100);
               setEyeContactPct(pct);
             }
           } else {
+            lookDownStartTimestampRef.current = null;
+            lookAwayStartTimestampRef.current = null;
             setCurrentStatus('no_face');
             if (isTrackingRef.current) {
               totalFramesRef.current += 1;
@@ -237,9 +265,8 @@ export function useFaceLandmarker() {
     totalFramesRef.current = 0;
     eyeContactFramesRef.current = 0;
     lookingDownFramesRef.current = 0;
-    inLookDownRef.current = false;
+    inLookDownInstanceRef.current = false;
     lookDownCountRef.current = 0;
-    lookDownStartTimeRef.current = null;
     lookDownTotalSecRef.current = 0;
     setEyeContactPct(100);
   }, []);

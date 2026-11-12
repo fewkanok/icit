@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import SlideViewer from './SlideViewer';
+import FloatingCamera from './FloatingCamera';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { useAudioRecorder } from '../lib/useAudioRecorder';
 import { useFaceLandmarker } from '../lib/useFaceLandmarker';
@@ -163,6 +164,9 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
+      {/* หน้าต่างกล้องลอย (สามารถคลิกลากไปวางได้ทุกจุดบนหน้าจอ) */}
+      <FloatingCamera vision={vision} live={live} />
+
       {/* แถบบน */}
       <div className="flex items-center justify-between">
         <button
@@ -219,15 +223,15 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
               </div>
             )}
 
-            {/* กล่องเว็บแคม + Google MediaPipe Vision */}
-            <div className="rounded-lg border border-line bg-paper p-3">
-              <div className="flex items-center justify-between text-xs mb-2">
+            {/* ตัวควบคุมกล้องเว็บแคม Google MediaPipe Vision */}
+            <div className="rounded-lg border border-line bg-paper px-3.5 py-2.5">
+              <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-1.5 font-medium text-ink">
                   <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M2.5 4.5h2l1-1.5h5l1 1.5h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z" />
                     <circle cx="8" cy="8" r="2.5" />
                   </svg>
-                  <span>Google MediaPipe Vision</span>
+                  <span>กล้องวัดสายตา (MediaPipe)</span>
                 </div>
 
                 {vision.cameraActive ? (
@@ -242,81 +246,29 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
                   <button
                     onClick={vision.startCamera}
                     disabled={vision.modelLoading || live}
-                    className="flex items-center gap-1 text-[11px] font-medium text-ink bg-white border border-line rounded px-2 py-0.5 hover:border-faint transition cursor-pointer disabled:opacity-40"
+                    className="flex items-center gap-1 text-[11px] font-medium text-ink bg-white border border-line rounded px-2.5 py-1 hover:border-faint transition cursor-pointer disabled:opacity-40"
                   >
-                    {vision.modelLoading ? 'กำลังโหลดโมเดล…' : 'เปิดกล้องวัดสายตา'}
+                    {vision.modelLoading ? 'กำลังโหลดโมเดล…' : '📷 เปิดกล้อง (หน้าต่างลอย)'}
                   </button>
                 )}
               </div>
 
               {vision.cameraActive ? (
-                <div className="space-y-2">
-                  <div className="relative aspect-video w-full overflow-hidden rounded-md bg-black">
-                    <video
-                      ref={vision.setVideoRef}
-                      playsInline
-                      muted
-                      autoPlay
-                      className="h-full w-full object-cover -scale-x-100"
-                    />
-
-                    {/* ป้ายเตือนสถานะมุมขวาบนของกล้อง */}
-                    <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-ink/75 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-xs">
-                      {vision.currentStatus === 'eye_contact' && (
-                        <>
-                          <span className="size-1.5 rounded-full bg-ok animate-pulse" />
-                          <span>สบตาคนฟัง</span>
-                        </>
-                      )}
-                      {vision.currentStatus === 'looking_down' && (
-                        <>
-                          <span className="size-1.5 rounded-full bg-slow animate-pulse" />
-                          <span>ก้มอ่านโพย!</span>
-                        </>
-                      )}
-                      {vision.currentStatus === 'looking_away' && (
-                        <>
-                          <span className="size-1.5 rounded-full bg-white/70" />
-                          <span>หันมองสไลด์</span>
-                        </>
-                      )}
-                      {vision.currentStatus === 'no_face' && (
-                        <>
-                          <span className="size-1.5 rounded-full bg-accent" />
-                          <span>ไม่พบใบหน้า</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* แถบวัด Eye Contact และ องศาใบหน้า */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="text-muted">Eye Contact (การสบตา)</span>
-                      <span className="font-mono font-medium text-ink">{vision.eyeContactPct}%</span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
-                      <div
-                        className={`h-full transition-all duration-300 ${
-                          vision.eyeContactPct >= 70 ? 'bg-ok' : vision.eyeContactPct >= 45 ? 'bg-slow' : 'bg-accent'
-                        }`}
-                        style={{ width: `${vision.eyeContactPct}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-faint font-mono pt-0.5">
-                      <span>ก้ม/เงย: {vision.poseAngles.pitch}°</span>
-                      <span>หัน: {vision.poseAngles.yaw}°</span>
-                    </div>
-                  </div>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-muted border-t border-line/60 pt-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-1.5 rounded-full bg-ok animate-pulse" />
+                    กล้องลอยเปิดอยู่ (คลิกลากย้ายได้อิสระ)
+                  </span>
+                  <span className="font-mono text-ink font-medium">{vision.eyeContactPct}%</span>
                 </div>
               ) : (
-                <p className="text-[11px] text-faint leading-relaxed">
-                  เปิดกล้องเพื่อวัด Eye Contact สบตาคนฟัง และเตือนเมื่อเผลอก้มอ่านสไลด์
+                <p className="mt-1 text-[11px] text-faint leading-relaxed">
+                  เปิดเป็นหน้าต่างกล้องลอย สามารถคลิกลากไปวางตรงไหนของหน้าจอก็ได้ และตรวจจับการก้มอ่านโพยอย่างแม่นยำ
                 </p>
               )}
 
               {vision.cameraError && (
-                <p className="mt-1 text-[11px] text-accent">{vision.cameraError}</p>
+                <p className="mt-1.5 text-[11px] text-accent">{vision.cameraError}</p>
               )}
             </div>
 
