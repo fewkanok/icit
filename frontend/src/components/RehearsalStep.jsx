@@ -253,7 +253,7 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
                 <div className="space-y-2">
                   <div className="relative aspect-video w-full overflow-hidden rounded-md bg-black">
                     <video
-                      ref={vision.videoRef}
+                      ref={vision.setVideoRef}
                       playsInline
                       muted
                       autoPlay
@@ -311,7 +311,7 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
                 </div>
               ) : (
                 <p className="text-[11px] text-faint leading-relaxed">
-                  เปิดกล้องเพื่อวัด Eye Contact สบตาคนฟัง และเตือนเมื่อเผลอก้มอ่านสไลด์ (รันในเครื่อง 100% ไม่ส่งภาพออกนอกเครื่อง)
+                  เปิดกล้องเพื่อวัด Eye Contact สบตาคนฟัง และเตือนเมื่อเผลอก้มอ่านสไลด์
                 </p>
               )}
 
