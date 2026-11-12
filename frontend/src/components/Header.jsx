@@ -12,7 +12,7 @@ export default function Header({ step }) {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <div className="flex items-center gap-2">
           <span className="size-2.5 rounded-full bg-accent" />
-          <span className="font-semibold tracking-tight">SpeakQuest</span>
+          <span className="font-semibold tracking-tight">Test SWK</span>
         </div>
 
         <ol className="flex items-center gap-1 text-sm">

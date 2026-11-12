@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import SlideViewer from './SlideViewer';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { useAudioRecorder } from '../lib/useAudioRecorder';
+import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import { analyze, countFillers, countWords, formatTime, pace, PACE_PILL, PACE_TEXT } from '../lib/metrics';
 
 const WINDOW_SEC = 10; // คำนวณความเร็วจากช่วง 10 วินาทีล่าสุด
@@ -102,6 +103,9 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
   // 2. ตัวอัดเสียงลง RAM + จับคลื่นเสียง + เดดแอร์ (ไม่ขึ้น Cloud)
   const recorder = useAudioRecorder({ silenceThreshold: 0.02, deadAirLimitSec: 2.5 });
 
+  // 3. ตัวตรวจจับสายตา & บุคลิกภาพ ด้วย Google MediaPipe Vision (Client-side 100%)
+  const vision = useFaceLandmarker();
+
   const total = deck.slides.length;
   const live = speech.listening || recorder.recording;
   const result = results[index];
@@ -134,6 +138,9 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
     setElapsed(0);
     speech.start();
     await recorder.start();
+    if (vision.cameraActive) {
+      vision.startTracking();
+    }
   }
 
   async function stop() {
@@ -141,12 +148,14 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
     const duration = (Date.now() - startedAt.current) / 1000;
     speech.stop();
     const recResult = await recorder.stop();
-    console.log('[RehearsalStep] recorded audioUrl:', recResult.audioUrl);
+    const visionStats = vision.stopTracking();
+    console.log('[RehearsalStep] recorded audioUrl:', recResult.audioUrl, 'vision:', visionStats);
 
     onResult(index, {
       ...analyze(transcript, duration),
       audioUrl: recResult.audioUrl,
       deadAir: recResult.deadAir,
+      vision: visionStats,
     });
   }
 
@@ -210,6 +219,107 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
               </div>
             )}
 
+            {/* กล่องเว็บแคม + Google MediaPipe Vision */}
+            <div className="rounded-lg border border-line bg-paper p-3">
+              <div className="flex items-center justify-between text-xs mb-2">
+                <div className="flex items-center gap-1.5 font-medium text-ink">
+                  <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M2.5 4.5h2l1-1.5h5l1 1.5h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z" />
+                    <circle cx="8" cy="8" r="2.5" />
+                  </svg>
+                  <span>Google MediaPipe Vision</span>
+                </div>
+
+                {vision.cameraActive ? (
+                  <button
+                    onClick={vision.stopCamera}
+                    disabled={live}
+                    className="text-[11px] text-accent hover:underline disabled:opacity-40 cursor-pointer"
+                  >
+                    ปิดกล้อง
+                  </button>
+                ) : (
+                  <button
+                    onClick={vision.startCamera}
+                    disabled={vision.modelLoading || live}
+                    className="flex items-center gap-1 text-[11px] font-medium text-ink bg-white border border-line rounded px-2 py-0.5 hover:border-faint transition cursor-pointer disabled:opacity-40"
+                  >
+                    {vision.modelLoading ? 'กำลังโหลดโมเดล…' : 'เปิดกล้องวัดสายตา'}
+                  </button>
+                )}
+              </div>
+
+              {vision.cameraActive ? (
+                <div className="space-y-2">
+                  <div className="relative aspect-video w-full overflow-hidden rounded-md bg-black">
+                    <video
+                      ref={vision.videoRef}
+                      playsInline
+                      muted
+                      autoPlay
+                      className="h-full w-full object-cover -scale-x-100"
+                    />
+
+                    {/* ป้ายเตือนสถานะมุมขวาบนของกล้อง */}
+                    <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-ink/75 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-xs">
+                      {vision.currentStatus === 'eye_contact' && (
+                        <>
+                          <span className="size-1.5 rounded-full bg-ok animate-pulse" />
+                          <span>สบตาคนฟัง</span>
+                        </>
+                      )}
+                      {vision.currentStatus === 'looking_down' && (
+                        <>
+                          <span className="size-1.5 rounded-full bg-slow animate-pulse" />
+                          <span>ก้มอ่านโพย!</span>
+                        </>
+                      )}
+                      {vision.currentStatus === 'looking_away' && (
+                        <>
+                          <span className="size-1.5 rounded-full bg-white/70" />
+                          <span>หันมองสไลด์</span>
+                        </>
+                      )}
+                      {vision.currentStatus === 'no_face' && (
+                        <>
+                          <span className="size-1.5 rounded-full bg-accent" />
+                          <span>ไม่พบใบหน้า</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* แถบวัด Eye Contact และ องศาใบหน้า */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-muted">Eye Contact (การสบตา)</span>
+                      <span className="font-mono font-medium text-ink">{vision.eyeContactPct}%</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          vision.eyeContactPct >= 70 ? 'bg-ok' : vision.eyeContactPct >= 45 ? 'bg-slow' : 'bg-accent'
+                        }`}
+                        style={{ width: `${vision.eyeContactPct}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-faint font-mono pt-0.5">
+                      <span>ก้ม/เงย: {vision.poseAngles.pitch}°</span>
+                      <span>หัน: {vision.poseAngles.yaw}°</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-faint leading-relaxed">
+                  เปิดกล้องเพื่อวัด Eye Contact สบตาคนฟัง และเตือนเมื่อเผลอก้มอ่านสไลด์ (รันในเครื่อง 100% ไม่ส่งภาพออกนอกเครื่อง)
+                </p>
+              )}
+
+              {vision.cameraError && (
+                <p className="mt-1 text-[11px] text-accent">{vision.cameraError}</p>
+              )}
+            </div>
+
             {/* กล่องแสดงข้อความที่พูด */}
             <div className="min-h-36 flex-1 rounded-lg bg-paper px-4 py-3 text-[15px] leading-7">
               {live ? (
@@ -259,6 +369,24 @@ export default function RehearsalStep({ deck, results, onResult, onBack, onFinis
                     note={result.fillers.found.map((f) => `${f.label} ×${f.count}`).join(', ')}
                     noteClass="text-accent"
                   />
+                )}
+                {result.vision?.cameraUsed && (
+                  <>
+                    <Stat
+                      label="Eye Contact"
+                      value={`${result.vision.eyeContactPct}%`}
+                      note={result.vision.eyeContactPct >= 70 ? 'สบตาดีมาก' : 'ควรมองกล้องเพิ่ม'}
+                      noteClass={result.vision.eyeContactPct >= 70 ? 'text-ok' : 'text-slow'}
+                    />
+                    {result.vision.lookingDownCount > 0 && (
+                      <Stat
+                        label="ก้มอ่านโพย"
+                        value={`${result.vision.lookingDownCount} ครั้ง`}
+                        note={`${result.vision.lookingDownSec} วิ`}
+                        noteClass="text-accent"
+                      />
+                    )}
+                  </>
                 )}
               </div>
             )}

@@ -17,6 +17,13 @@ export default function SummaryStep({
     ? Math.round(done.reduce((a, x) => a + (x.r?.wpm || 0), 0) / done.length)
     : 0;
 
+  // สถิติจาก Google MediaPipe Vision
+  const visionList = done.filter((x) => x.r?.vision?.cameraUsed);
+  const avgEyeContact = visionList.length
+    ? Math.round(visionList.reduce((a, x) => a + (x.r.vision.eyeContactPct || 0), 0) / visionList.length)
+    : null;
+  const totalLookingDown = visionList.reduce((a, x) => a + (x.r.vision.lookingDownCount || 0), 0);
+
   // สำหรับการฟังเสียง
   const audioRef = useRef(null);
   const [playingIndex, setPlayingIndex] = useState(null); // หน้าที่กำลังเล่นเสียงอยู่
@@ -256,6 +263,30 @@ export default function SummaryStep({
         ))}
       </div>
 
+      {/* สรุปคะแนนสายตาและบุคลิกภาพ (Google MediaPipe Vision) ถ้ามีการเปิดใช้กล้อง */}
+      {avgEyeContact !== null && (
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-line bg-white px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-paper text-base">👁️</span>
+            <div>
+              <p className="text-xs font-medium text-muted">การสบตาเฉลี่ย (Google MediaPipe Vision)</p>
+              <p className="mt-0.5 font-mono text-xl font-semibold tabular-nums text-ink">
+                {avgEyeContact}%{' '}
+                <span className={`font-sans text-xs font-medium ${avgEyeContact >= 70 ? 'text-ok' : 'text-slow'}`}>
+                  {avgEyeContact >= 70 ? 'สบตากับผู้ฟังได้ดีมาก' : 'ควรมองกล้องเพิ่มขึ้น'}
+                </span>
+              </p>
+            </div>
+          </div>
+          {totalLookingDown > 0 && (
+            <div className="sm:text-right border-t sm:border-t-0 border-line/60 pt-2 sm:pt-0">
+              <p className="text-xs text-muted">ก้มอ่านโพยรวม</p>
+              <p className="font-mono text-base font-semibold text-accent">{totalLookingDown} ครั้ง</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* รายการสไลด์แต่ละหน้า พร้อมเครื่องเล่นเสียงและปุ่มแก้ไข */}
       <div className="mt-8 space-y-4">
         <div className="flex items-center justify-between text-xs text-muted font-medium">
@@ -307,6 +338,22 @@ export default function SummaryStep({
                         <span className="text-slow font-sans">
                           เดดแอร์: {r.deadAir.count} ครั้ง
                         </span>
+                      </>
+                    )}
+                    {r.vision?.cameraUsed && (
+                      <>
+                        <span className="text-faint">•</span>
+                        <span className={r.vision.eyeContactPct >= 70 ? 'text-ok font-sans' : 'text-slow font-sans'}>
+                          👁️ สบตา {r.vision.eyeContactPct}%
+                        </span>
+                        {r.vision.lookingDownCount > 0 && (
+                          <>
+                            <span className="text-faint">•</span>
+                            <span className="text-accent font-sans">
+                              ก้มอ่าน {r.vision.lookingDownCount} ครั้ง
+                            </span>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
