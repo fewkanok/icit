@@ -1,57 +1,77 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import Header from './components/Header';
+import UploadStep from './components/UploadStep';
+import RehearsalStep from './components/RehearsalStep';
+import SummaryStep from './components/SummaryStep';
+import { analyze } from './lib/metrics';
 
 export default function App() {
-  const [hype, setHype] = useState(75);
+  const [step, setStep] = useState('upload');
+  const [deck, setDeck] = useState(null); // { name, slides }
+  const [results, setResults] = useState({}); // { [slideIndex]: analysis }
+  const [rehearsalIndex, setRehearsalIndex] = useState(0); // หน้าสไลด์ที่จะซ้อม
+
+  const handleUpdateTranscript = (slideIndex, newTranscript) => {
+    const current = results[slideIndex];
+    if (!current) return;
+    const reanalyzed = analyze(newTranscript, current.duration);
+    setResults((prev) => ({
+      ...prev,
+      [slideIndex]: {
+        ...current,
+        ...reanalyzed,
+      },
+    }));
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
-      <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl text-center space-y-6">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold uppercase tracking-wider">
-          🚀 Ready for Day 1
-        </div>
-        
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400 bg-clip-text text-transparent">
-          SpeakQuest
-        </h1>
-        
-        <p className="text-sm text-slate-400 leading-relaxed">
-          AI Presentation Rehearsal & Q&A Simulator for Student Teams
-        </p>
+    <div className="flex min-h-screen flex-col">
+      <Header step={step} />
+      <main className="flex-1">
+        {step === 'upload' && (
+          <UploadStep
+            deck={deck}
+            onDeckChange={(d) => {
+              setDeck(d);
+              setResults({});
+              setRehearsalIndex(0);
+            }}
+            onStart={() => {
+              setRehearsalIndex(0);
+              setStep('rehearsal');
+            }}
+          />
+        )}
 
-        {/* Hype Meter Preview */}
-        <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 text-left space-y-3">
-          <div className="flex justify-between items-center text-xs font-medium text-slate-400">
-            <span>🔥 Audience Hype Meter</span>
-            <span className="text-emerald-400 font-bold">{hype}%</span>
-          </div>
-          <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
-            <div 
-              className="bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 h-full rounded-full transition-all duration-300"
-              style={{ width: `${hype}%` }}
-            />
-          </div>
-        </div>
+        {step === 'rehearsal' && deck && (
+          <RehearsalStep
+            deck={deck}
+            initialIndex={rehearsalIndex}
+            results={results}
+            onResult={(i, r) => setResults((prev) => ({ ...prev, [i]: r }))}
+            onBack={() => setStep('upload')}
+            onFinish={() => setStep('summary')}
+          />
+        )}
 
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setHype(prev => Math.min(100, prev + 10))}
-            className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-medium transition cursor-pointer"
-          >
-            + พูดดี (Hype Up)
-          </button>
-          <button 
-            onClick={() => setHype(prev => Math.max(0, prev - 10))}
-            className="flex-1 py-2 px-3 bg-rose-600/80 hover:bg-rose-500 text-white rounded-lg text-sm font-medium transition cursor-pointer"
-          >
-            - หลุด เอ่อ/อ่า
-          </button>
-        </div>
-
-        <div className="pt-4 border-t border-slate-800/60 text-xs text-slate-500 flex justify-between">
-          <span>Frontend: React + Tailwind</span>
-          <span>Backend: NestJS</span>
-        </div>
-      </div>
+        {step === 'summary' && deck && (
+          <SummaryStep
+            deck={deck}
+            results={results}
+            onBack={() => setStep('rehearsal')}
+            onReRecordSlide={(i) => {
+              setRehearsalIndex(i);
+              setStep('rehearsal');
+            }}
+            onUpdateTranscript={handleUpdateTranscript}
+            onRestart={() => {
+              setResults({});
+              setRehearsalIndex(0);
+              setStep('rehearsal');
+            }}
+          />
+        )}
+      </main>
     </div>
   );
 }
