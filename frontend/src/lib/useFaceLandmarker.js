@@ -57,6 +57,7 @@ export function useFaceLandmarker() {
   // ตัวนับเฟรมสะสมสำหรับความนิ่ง (Smoothing filter)
   const lookDownBufferRef = useRef(0);
   const lookAwayBufferRef = useRef(0);
+  const rollingHistoryRef = useRef([]); // เก็บประวัติ 30 เฟรมล่าสุด (~1 วินาที) สำหรับวัด % สด
 
   // โหมดบันทึกสถิติ (ทำงานเมื่อกดเริ่มซ้อมพูด)
   const isTrackingRef = useRef(false);
@@ -216,8 +217,11 @@ export function useFaceLandmarker() {
             }
 
             // แสดงผลสถานะ
+            let isEyeContactNow = false;
+
             if (lookDownBufferRef.current >= 4) {
               setCurrentStatus('looking_down');
+              isEyeContactNow = false;
               if (isTrackingRef.current) {
                 lookingDownFramesRef.current += 1;
                 lookDownTotalSecRef.current += deltaSec;
@@ -228,22 +232,38 @@ export function useFaceLandmarker() {
               }
             } else if (lookAwayBufferRef.current >= 4) {
               setCurrentStatus('looking_away');
+              isEyeContactNow = false;
               inLookDownInstanceRef.current = false;
             } else {
               setCurrentStatus('eye_contact');
+              isEyeContactNow = true;
               inLookDownInstanceRef.current = false;
               if (isTrackingRef.current) {
                 eyeContactFramesRef.current += 1;
               }
             }
 
+            // อัปเดต % Eye Contact สด (คำนวณจากช่วง 30 เฟรมล่าสุด ทั้งตอนพรีวิวและตอนซ้อม)
+            rollingHistoryRef.current.push(isEyeContactNow ? 1 : 0);
+            if (rollingHistoryRef.current.length > 30) {
+              rollingHistoryRef.current.shift();
+            }
+            const activeSum = rollingHistoryRef.current.reduce((a, b) => a + b, 0);
+            const liveScore = Math.round((activeSum / rollingHistoryRef.current.length) * 100);
+            setEyeContactPct(liveScore);
+
             if (isTrackingRef.current) {
               totalFramesRef.current += 1;
-              const pct = Math.round((eyeContactFramesRef.current / totalFramesRef.current) * 100);
-              setEyeContactPct(pct);
             }
           } else {
             setCurrentStatus('no_face');
+            rollingHistoryRef.current.push(0);
+            if (rollingHistoryRef.current.length > 30) {
+              rollingHistoryRef.current.shift();
+            }
+            const activeSum = rollingHistoryRef.current.reduce((a, b) => a + b, 0);
+            setEyeContactPct(Math.round((activeSum / rollingHistoryRef.current.length) * 100));
+
             if (isTrackingRef.current) {
               totalFramesRef.current += 1;
             }
@@ -272,6 +292,7 @@ export function useFaceLandmarker() {
     lookDownTotalSecRef.current = 0;
     lookDownBufferRef.current = 0;
     lookAwayBufferRef.current = 0;
+    rollingHistoryRef.current = [];
     setEyeContactPct(100);
   }, []);
 
