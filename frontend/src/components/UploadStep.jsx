@@ -1,8 +1,31 @@
 import { useRef, useState } from 'react';
 import SlideViewer from './SlideViewer';
+import RoomSetupModal from './RoomSetupModal';
 import { filesToSlides, SAMPLE_DECK } from '../lib/slides';
 
-export default function UploadStep({ deck, onDeckChange, onStart }) {
+const AUDIENCE_LABEL = {
+  general: 'คนทั่วไป',
+  teacher: 'อาจารย์ / กรรมการ',
+  executive: 'ผู้บริหาร',
+};
+
+export default function UploadStep({
+  deck,
+  rehearsalMode,
+  onRehearsalModeChange,
+  audience,
+  onAudienceChange,
+  timeBudget,
+  onTimeBudgetChange,
+  interruptEnabled,
+  onInterruptToggle,
+  useGeminiTts,
+  onGeminiTtsToggle,
+  onBackToMode,
+  onDeckChange,
+  onStart,
+}) {
+  const [setupOpen, setSetupOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -108,7 +131,29 @@ export default function UploadStep({ deck, onDeckChange, onStart }) {
           </div>
         )}
 
-        <div className="mt-8 lg:mt-auto lg:pt-10">
+        <div className="mt-8 lg:mt-auto lg:pt-8">
+          <div className="mb-4 flex items-center justify-between gap-2 rounded-lg border border-line bg-white px-3.5 py-2.5">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-ink">ตั้งค่าห้องซ้อม</p>
+              <p className="truncate text-[11px] text-muted">
+                {rehearsalMode === 'continuous' ? 'ซ้อมใหญ่' : 'ทีละหน้า'}
+                {' · '}
+                {AUDIENCE_LABEL[audience] || 'คนทั่วไป'}
+                {' · '}
+                {timeBudget.presentMinutes ? `พรีเซนต์ ${timeBudget.presentMinutes} น.` : 'ไม่จำกัดเวลา'}
+                {' · '}
+                {timeBudget.qaMinutes ? `Q&A ${timeBudget.qaMinutes} น.` : 'Q&A ไม่จำกัด'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSetupOpen(true)}
+              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-xs font-medium text-ink transition hover:border-faint cursor-pointer"
+            >
+              แก้ไข
+            </button>
+          </div>
+
           <button
             onClick={onStart}
             disabled={!deck || loading}
@@ -127,7 +172,16 @@ export default function UploadStep({ deck, onDeckChange, onStart }) {
               ยังไม่มีไฟล์? ลองด้วยสไลด์แนะนำตัว
             </button>
           )}
-          <p className="mt-6 text-xs leading-5 text-faint">ไฟล์ถูกประมวลผลในเบราว์เซอร์ของคุณ ไม่ได้ถูกส่งขึ้นเซิร์ฟเวอร์</p>
+          <div className="mt-4 flex items-center justify-between text-xs text-faint">
+            <button
+              type="button"
+              onClick={onBackToMode}
+              className="text-muted underline-offset-4 hover:text-ink hover:underline cursor-pointer"
+            >
+              ← เปลี่ยนโหมดซ้อม
+            </button>
+            <span>ประมวลผลบนเครื่องคุณ</span>
+          </div>
         </div>
       </section>
 
@@ -135,6 +189,24 @@ export default function UploadStep({ deck, onDeckChange, onStart }) {
       <section>
         <SlideViewer slides={deck?.slides} index={index} onIndexChange={setIndex} />
       </section>
+
+      {setupOpen && (
+        <RoomSetupModal
+          rehearsalMode={rehearsalMode}
+          onRehearsalModeChange={onRehearsalModeChange}
+          audience={audience}
+          onAudienceChange={onAudienceChange}
+          timeBudget={timeBudget}
+          onTimeBudgetChange={onTimeBudgetChange}
+          interruptEnabled={interruptEnabled}
+          onInterruptToggle={onInterruptToggle}
+          useGeminiTts={useGeminiTts}
+          onGeminiTtsToggle={onGeminiTtsToggle}
+          confirmLabel="บันทึก"
+          onConfirm={() => setSetupOpen(false)}
+          onClose={() => setSetupOpen(false)}
+        />
+      )}
     </div>
   );
 }

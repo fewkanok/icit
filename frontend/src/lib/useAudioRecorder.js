@@ -137,8 +137,10 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       };
 
       checkAudio();
+      return stream;
     } catch (err) {
       console.error("[useAudioRecorder] Audio recorder start error:", err);
+      return null;
     }
   }, [silenceThreshold, deadAirLimitSec]);
 

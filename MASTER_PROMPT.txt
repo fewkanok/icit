@@ -1,122 +1,100 @@
 ================================================================================
-MASTER PROMPT & PROJECT SPECIFICATION
+MASTER PROMPT & PROJECT SPECIFICATION (CURRENT STATE)
 AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
 ================================================================================
 
 1. บริบทและเป้าหมายของโปรเจกต์ (Project Overview)
 --------------------------------------------------------------------------------
-- ชื่อโปรเจกต์: AI Presentation & Q&A Rehearsal Coach
-- เป้าหมาย: พัฒนา Web Application เพื่อเป็นพื้นที่ซ้อมพรีเซนต์งานและจำลองการตอบคำถาม 
-  (Safe Space Rehearsal) ช่วยให้นิสิตนักศึกษาพัฒนา "ทักษะการสื่อสาร ความมั่นใจ 
-  การบริหารเวลา และไหวพริบในการตอบคำถาม Q&A" ก่อนลงสนามจริง 
-  (สอบโปรเจกต์, พรีเซนต์ทีสิส, สัมภาษณ์งาน)
+- ชื่อโปรเจกต์: AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
+- เป้าหมาย: พัฒนา Web Application เพื่อเป็นพื้นที่ซ้อมพรีเซนต์งานและจำลองการตอบคำถาม
+  (Safe Space Rehearsal) ช่วยให้นิสิตนักศึกษาพัฒนาทักษะการสื่อสาร ความมั่นใจ
+  การบริหารเวลา และการตอบคำถาม Q&A ก่อนลงสนามจริง (สอบโปรเจกต์, พรีเซนต์ทีสิส, สัมภาษณ์งาน)
 
-
-2. ขอบเขตการทำงาน (System Scope & Boundaries)
+2. สถาปัตยกรรมและเทคโนโลยีที่ใช้ (Tech Stack)
 --------------------------------------------------------------------------------
-[สิ่งที่ระบบทำ (In Scope)]
-1. วิเคราะห์จังหวะเวลาและความเร็วในการพูด (Pacing / Words Per Minute)
-2. ตรวจจับคำติดปากและคำฟุ่มเฟือย (Verbal Tics / Filler Words) เช่น "เอ่อ, อ่า, แบบว่า, นะครับ"
-3. ประเมินความมั่นใจในการใช้ภาษา (Confidence & Assertiveness) และการใช้คำเชื่อม (Transitions)
-4. ตรวจสอบความสอดคล้องของคำพูดกับเนื้อหาบนสไลด์ (Slide-to-Speech Alignment)
-5. **Reverse Summary Test (การทดสอบความเข้าใจย้อนกลับ):** ให้ AI สรุปสิ่งที่ผู้พูดเพิ่งพูดไปใน 1-2 ประโยค 
-   เพื่อเป็นหลักฐานเชิงประจักษ์พิสูจน์ว่า "คนฟังจับใจความสำคัญได้ตรงเป้าหมายจริงหรือไม่"
-6. จำลองการตั้งคำถามสดช่วง Q&A (Dynamic AI Examiner) เพื่อฝึกทักษะการแก้ปัญหาเฉพาะหน้า
+[Backend - NestJS (TypeScript) @ Port 3001]
+- Framework: NestJS + Socket.IO (`RemoteGateway` สำหรับรีโมทมือถือผ่าน QR Code)
+- AI SDK: `@google/genai` (ใช้ API key จาก `backend/.env` -> `GEMINI_API_KEY`)
+  - JSON / Text Tasks: ใช้ค่าเริ่มต้นของ SDK + fallback models (`GEMINI_MODEL` -> `gemini-3.1-flash-lite` -> `gemini-2.5-flash-lite` -> `gemini-2.5-flash`)
+  - Gemini TTS (`synthesizeSpeech`): ใช้ `apiVersion: 'v1beta'` และแปลง PCM 24kHz เป็น WAV Data URL (`pcmToWavDataUrl`) พร้อม in-memory cache และ fallback อัตโนมัติหากโมเดลไม่รองรับ `speechConfig`
 
-[สิ่งที่ไม่ใช่ขอบเขตของระบบ (Out of Scope)]
-- ไม่ทำหน้าที่ตรวจข้อเท็จจริงทางวิชาการเชิงลึก (Domain Fact-Checking) 
-  โดยให้ผู้ใช้งานเป็นผู้รับผิดชอบความถูกต้องของเนื้อหาตนเอง
+[Frontend - React + Vite]
+- UI & Styling: React + Tailwind CSS (ห้ามใส่ emoji ในข้อความ UI ทุกจุด, ใช้ภาษาไทยที่เข้าใจง่าย)
+- Slide Viewer: `pdfjs-dist` (เรนเดอร์ไฟล์ PDF เป็นภาพ และดึงข้อความแต่ละสไลด์)
+- Speech-to-Text: Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) ถอดเสียงไทย/อังกฤษแบบ real-time
+- Eye Contact Tracking: MediaPipe `@mediapipe/tasks-vision` (`FaceLandmarker`) วิเคราะห์การมองกล้อง
+- Recording: MediaRecorder API บันทึกเสียงพูด + บันทึกวิดีโอกล้องหน้าแบบ Local (ดาวน์โหลดเป็น WebM)
+- Mobile Remote: `qrcode.react` + `socket.io-client` เชื่อมต่อรีโมทเปลี่ยนสไลด์จากมือถือ
 
-
-3. ลำดับขั้นตอนการทำงาน (Core User Journey)
+3. ลำดับขั้นตอนการทำงานในแอปปัจจุบัน (Current User Journey)
 --------------------------------------------------------------------------------
-Step 1: [Upload Deck]
-- ผู้ใช้อัปโหลดไฟล์สไลด์นำเสนอ (PDF หรือรูปภาพ)
+Step 1: [ModeStep] เลือกกลุ่มผู้ฟังและตั้งค่าเริ่มต้น
+- เลือกกลุ่มผู้ฟัง (Audience): `general` (คนทั่วไป), `teacher` (อาจารย์/กรรมการ), `executive` (ผู้บริหาร/นักลงทุน)
+- ตั้งค่าห้องซ้อมผ่าน `RoomSetupModal` (เป้าเวลาซ้อมรวม, รูปแบบการซ้อมทีละหน้า/ต่อเนื่อง, กล้อง, คำถามแทรก, เสียง Gemini TTS)
 
-Step 2: [Slide-by-Slide Rehearsal]
-- ผู้ใช้กดบันทึกเสียงพูดทีละสไลด์ ระบบถอดเสียงเป็นข้อความแบบ Real-time (Live Subtitle)
+Step 2: [UploadStep] อัปโหลดสไลด์
+- รองรับไฟล์ PDF และไฟล์รูปภาพ พร้อมดูตัวอย่างสไลด์และปรับตั้งค่าห้องซ้อมก่อนเริ่ม
 
-Step 3: [Instant Slide Feedback & Reverse Summary] ⭐
-- เมื่อพูดจบแต่ละสไลด์ ระบบประมวลผลและให้คำแนะนำทันทีใน 1-2 วินาที:
-  1) ตรวจสถิติ: ความเร็ว (WPM), คำฟุ่มเฟือย (เอ่อ/อ่า), การบริหารเวลา
-  2) AI ฟีดแบ็ก: ความกระชับ, ความมั่นใจในการใช้คำ
-  3) **ปุ่ม "AI สรุปความเข้าใจ (Listener Summary)":** แสดงข้อความ 1-2 ประโยคที่ AI สรุปได้จากบทพูด 
-     เพื่อให้ผู้พูดเช็กว่า "สิ่งที่คนฟังเข้าใจ ตรงกับสิ่งที่เราตั้งใจจะสื่อสารจริงไหม"
-- หากยังไม่พอใจ สามารถกด Re-record ซ่อมเฉพาะหน้านั้นได้ทันที
+Step 3: [RehearsalStep] ซ้อมพรีเซนต์
+- รองรับ 2 โหมด:
+  1) ซ้อมทีละสไลด์ (Slide-by-Slide): อัดเสียง/ตรวจ AI ทีละหน้า และซ่อมเฉพาะหน้าได้
+  2) ซ้อมต่อเนื่องแบบไม่หยุด (Continuous Dress Rehearsal): พรีเซนต์รวดเดียวตั้งแต่ต้นจนจบแล้วสรุปผลรวม
+- Target Timer: นับเวลาซ้อมรวมเทียบกับเป้าหมายเวลาที่ตั้งไว้
+- Real-time Metrics: ความเร็วการพูด (WPM), คำฟุ่มเฟือย (Filler Words), ช่วงเงียบ (Dead Air), เปอร์เซ็นต์การสบตากล้อง (Eye Contact %)
+- Floating Camera & Local Video Recording: กล้องหน้าลอยปรับขนาดได้ (ลากมุมหรือเลือก S / M / L) พร้อมบันทึกวิดีโอเก็บไว้ดูย้อนหลังหรือดาวน์โหลด
+- Stage Mode & Mobile Remote: เปิดโหมดเต็มจอและสแกน QR Code เพื่อใช้มือถือเป็นรีโมทกดเลื่อนสไลด์
+- AI Slide Check (`POST /api/gemini/check-slide`): ส่งภาพ/เนื้อหาสไลด์ + บทพูดให้ AI ทำ Listener Summary, ตรวจความครบถ้วน และแนะนำจุดปรับปรุง
+- คำถามแทรกระหว่างพรีเซนต์ (`InterruptModal` + `POST /api/gemini/interrupt`): สุ่มถามแทรก (~20% ต่อสไลด์ที่ยังไม่เคยถาม) และอ่านคำถามออกเสียง
 
-Step 4: [Dynamic Q&A Simulation]
-- เมื่อซ้อมครบทุกหน้า AI จะรวบรวมเนื้อหาทั้งหมดมาค้นหาจุดโหว่ แล้วสุ่มยิงคำถามสด 2-3 ข้อ 
-  เพื่อให้ผู้ใช้กดอัดเสียงตอบสดๆ
+Step 4: [QaStep] จำลองถาม-ตอบ Q&A
+- AI วิเคราะห์สไลด์และบทพูดทั้งหมดเพื่อสร้างคำถามเจาะจุดโหว่ (`POST /api/gemini/qa/generate`)
+- ผู้ใช้กดอัดเสียงตอบคำถามสด และให้ AI ประเมินคำตอบ (`POST /api/gemini/qa/evaluate`)
+- Toggle เสียง Gemini TTS (`POST /api/gemini/tts`):
+  - ค่าเริ่มต้นเป็น "ปิด" (ใช้เสียงเบราว์เซอร์ `speechSynthesis` เพื่อความเร็วและประหยัดโควต้าเวลาเทส)
+  - เมื่อกด "เปิด" จะเรียก Gemini TTS และ cache เสียงไว้สำหรับปุ่ม "ฟังซ้ำ" (หากเรียกไม่สำเร็จจะสลับกลับเสียงเบราว์เซอร์อัตโนมัติ)
 
-Step 5: [Session Summary Dashboard]
-- สรุปภาพรวมเวลา คะแนนความพร้อม และจุดเด่น/จุดบกพร่องที่ควรระวังก่อนขึ้นเวทีจริง
+Step 5: [SummaryStep] แดชบอร์ดสรุปผล
+- สรุปเวลาที่ใช้, คะแนนความพร้อม, สถิติการพูดรายสไลด์, ผลประเมิน Q&A, วิดีโอที่บันทึกไว้ และบทวิเคราะห์ภาพรวมจาก AI (`POST /api/gemini/summary/analyze`)
 
-
-4. Master System Prompt สำหรับ Google Gemini API (โหมดประเมินรายสไลด์)
+4. โครงสร้างไฟล์สำคัญ (Key Files)
 --------------------------------------------------------------------------------
-คุณคือ "AI Senior Presentation Coach & Active Listener" ผู้เชี่ยวชาญระดับโลกด้านการสื่อสารและการนำเสนอ
-หน้าที่ของคุณคือ: ประเมินการนำเสนอของผู้เรียนอย่างตรงไปตรงมา และทำหน้าที่เป็น "ตัวแทนของคนฟัง" ในการสรุปสิ่งที่เข้าใจ
+[Backend - `backend/src/`]
+- `main.ts` - Bootstrap NestJS + CORS + JSON body limit
+- `app.module.ts` - Root module (`GeminiModule`, `RemoteModule`)
+- `gemini/gemini.controller.ts` - REST endpoints (`/api/gemini/*`)
+- `gemini/gemini.service.ts` - Logic เรียก Gemini API, JSON fallback, และ TTS (`v1beta` + WAV conversion)
+- `remote/remote.gateway.ts` - Socket.IO gateway สำหรับ QR Mobile Remote
 
-[ข้อมูลที่คุณจะได้รับในแต่ละรอบ]
-1. ภาพหรือเนื้อหาของสไลด์หน้านั้น (Slide Context)
-2. ข้อความที่ผู้เรียนพูด (Transcribed Speech)
-3. สถิติเวลาและความเร็ว (WPM, เวลาที่ใช้, จำนวนคำฟุ่มเฟือยที่ตรวจพบ)
+[Frontend - `frontend/src/`]
+- `App.jsx` - Main state & 5-step flow (`mode` -> `upload` -> `rehearsal` -> `qa` -> `summary`) + route `/remote/:roomId`
+- `components/Header.jsx` - แถบนำทางด้านบนและตัวบอกขั้นตอน
+- `components/ModeStep.jsx` - หน้าเลือกกลุ่มผู้ฟังและเข้าตั้งค่าห้องซ้อม
+- `components/RoomSetupModal.jsx` - หน้าต่างตั้งค่าเวลา, โหมดซ้อม, กล้อง, คำถามแทรก, เสียง Gemini
+- `components/UploadStep.jsx` - อัปโหลดและแปลงสไลด์ PDF/รูปภาพ
+- `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก
+- `components/SlideViewer.jsx` - แสดงสไลด์ปัจจุบัน
+- `components/InterruptModal.jsx` - หน้าต่างคำถามแทรกระหว่างพรีเซนต์
+- `components/QaStep.jsx` - หน้าถาม-ตอบ Q&A ท้ายการซ้อม
+- `components/SummaryStep.jsx` - หน้าสรุปผลคะแนนและดาวน์โหลดวิดีโอ
+- `components/RemotePage.jsx` - หน้าจอมือถือสำหรับควบคุมสไลด์ผ่าน QR Code
+- `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`)
+- `lib/socket.js` - Socket.IO client
+- `lib/speech.js` - จัดการเสียงพูดคำถาม (Gemini TTS + cache + fallback `speakThai`)
+- `lib/useAudioRecorder.js` - Hook อัดเสียง + Web Speech API transcript + filler/dead-air metrics
+- `lib/useVideoRecorder.js` - Hook อัดวิดีโอกล้องหน้าแบบ Local (WebM)
+- `lib/useFaceLandmarker.js` - Hook MediaPipe FaceLandmarker ตรวจการสบตากล้อง
 
-[เกณฑ์การประเมิน 4 มิติ + การทดสอบความเข้าใจ]
-1. Listener Summary: คุณในฐานะคนฟัง จับใจความสำคัญจากสิ่งที่ผู้เรียนพูดได้ว่าอย่างไร? (สรุปสั้นๆ 1-2 ประโยค)
-2. Content Alignment (0-100): ผู้เรียนพูดตรงกับใจความสำคัญบนสไลด์หรือไม่? ข้ามประเด็นสำคัญใดไปหรือเปล่า?
-3. Clarity & Conciseness (0-100): พูดกระชับ เข้าประเด็นชัดเจน หรือพูดน้ำท่วมทุ่ง/วกวน?
-4. Confidence & Tone (0-100): การเลือกใช้คำแสดงถึงความมั่นใจหรือไม่? มีคำที่แสดงความลังเลหรือไม่?
-5. Delivery & Transitions (0-100): มีการใช้คำเชื่อมเชื่อมโยงประเด็นอย่างเป็นธรรมชาติหรือไม่?
-
-[รูปแบบผลลัพธ์ที่ต้องการ (Return as JSON only)]
-{
-  "listenerSummary": "สรุป 1-2 ประโยคสั้นๆ ที่คนฟังจับใจความสำคัญได้จากบทพูด เพื่อให้ผู้เรียนเช็กว่าตรงกับเป้าหมายหรือไม่",
-  "isCoreMessageUnderstood": true,
-  "scores": {
-    "contentAlignment": 85,
-    "clarity": 80,
-    "confidence": 75,
-    "overall": 80
-  },
-  "strengths": [
-    "จุดเด่นที่ทำได้ดีในสไลด์นี้ 1-2 ข้อ"
-  ],
-  "improvements": [
-    "จุดที่ควรปรับปรุงให้กระชับหรือมั่นใจขึ้น 1-2 ข้อ"
-  ],
-  "missedPoints": [
-    "ข้อมูลหรือตัวเลขสำคัญบนสไลด์ที่ผู้เรียนลืมพูดถึง (ถ้ามี)"
-  ],
-  "suggestedPhrasing": "แนะนำประโยคตัวอย่างที่ควรพูดแทนประโยคเดิม เพื่อให้ฟังดูเป็นมืออาชีพขึ้น"
-}
-
-[เงื่อนไขสำคัญ]
-- ให้ข้อเสนอแนะที่เป็นรูปธรรม นำไปฝึกต่อได้ทันที
-- ใช้ภาษาไทยที่สุภาพ แต่ตรงไปตรงมา ไม่ชมพร่ำเพรื่อถ้ามีจุดบกพร่อง
-- ตอบกลับเฉพาะ JSON Format เท่านั้น ห้ามใส่ข้อความเกริ่นนำใดๆ
-
-
-5. Master Prompt สำหรับ Google Gemini API (โหมดจำลองถาม-ตอบ Q&A ตอนจบ)
+5. กติกาการพัฒนาและคำสั่งรันโปรเจกต์ (Conventions & Commands)
 --------------------------------------------------------------------------------
-คุณคือ "คณะกรรมการสอบและผู้เชี่ยวชาญ (Examining Committee)"
-หน้าที่ของคุณคือ: วิเคราะห์ภาพรวมของการนำเสนอทั้งหมด (สไลด์ทุกหน้า + สิ่งที่ผู้เรียนพูดทั้งหมด) เพื่อค้นหา "จุดโหว่ (Blind Spots) หรือประเด็นที่ยังอธิบายไม่ชัดเจน" และตั้งคำถามสด
+[Conventions]
+- ห้ามใช้ emoji ในข้อความ UI ทุกจุดเด็ดขาด
+- ข้อความ UI ใช้ภาษาไทยที่เป็นมิตร กระชับ อ่านง่ายสำหรับผู้เริ่มต้น
+- ห้าม commit ไฟล์ `backend/.env` (เก็บ `GEMINI_API_KEY` ไว้ในเครื่องเท่านั้น)
 
-[เกณฑ์การตั้งคำถาม]
-1. ต้องเป็นคำถามที่เกี่ยวข้องกับสิ่งที่ผู้เรียนเพิ่งนำเสนอไป
-2. เน้นถามจุดที่ผู้เรียนยังอธิบายไม่เคลียร์, ตัวเลขที่ไม่มีที่มา, หรือความเป็นไปได้ในการนำไปใช้จริง
-3. ตั้งคำถาม 2-3 ข้อ โดยมีระดับความยากปานกลางถึงท้าทาย
-
-[รูปแบบผลลัพธ์ (JSON only)]
-{
-  "questions": [
-    {
-      "id": 1,
-      "question": "คำถามที่ 1",
-      "targetSlide": 3,
-      "reason": "ทำไมถึงถามข้อนี้ (จุดที่พบว่ายังอธิบายไม่เคลียร์)",
-      "idealAnswerGuide": "แนวทางการตอบที่ดีที่ผู้เรียนควรตอบ"
-    }
-  ]
-}
+[Run Development Servers]
+- Backend: `npm --prefix backend run start:dev` (Port 3001)
+- Frontend: `npm --prefix frontend run dev` (Vite proxy `/api` และ `/socket.io` ไปยัง backend)
+- Build Check:
+  - `npm --prefix backend run build`
+  - `npm --prefix frontend run build`
 ================================================================================

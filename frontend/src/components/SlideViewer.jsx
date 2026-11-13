@@ -25,7 +25,7 @@ function Arrow({ dir }) {
   );
 }
 
-export default function SlideViewer({ slides, index, onIndexChange, locked = false }) {
+export default function SlideViewer({ slides, index, onIndexChange, locked = false, laser = null }) {
   const total = slides?.length ?? 0;
   const slide = slides?.[index];
   const go = (i) => !locked && i >= 0 && i < total && onIndexChange(i);
@@ -56,6 +56,12 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
           <img src={slide.src} alt={`สไลด์หน้า ${index + 1}`} className="h-full w-full object-contain" />
         )}
         {slide && !slide.src && <SampleSlide slide={slide} index={index} />}
+        {laser?.active && (
+          <span
+            className="pointer-events-none absolute z-20 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500 shadow-[0_0_12px_4px_rgba(239,68,68,0.75)] ring-2 ring-white/80"
+            style={{ left: `${laser.x * 100}%`, top: `${laser.y * 100}%` }}
+          />
+        )}
       </div>
 
       {total > 0 && (

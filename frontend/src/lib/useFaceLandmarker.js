@@ -334,5 +334,6 @@ export function useFaceLandmarker() {
     stopCamera,
     startTracking,
     stopTracking,
+    getStream: () => streamRef.current,
   };
 }

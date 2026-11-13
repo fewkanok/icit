@@ -1,6 +1,7 @@
 const STEPS = [
   { key: 'upload', label: 'สไลด์' },
   { key: 'rehearsal', label: 'ซ้อมพูด' },
+  { key: 'qa', label: 'ถาม-ตอบ' },
   { key: 'summary', label: 'สรุปผล' },
 ];
 
