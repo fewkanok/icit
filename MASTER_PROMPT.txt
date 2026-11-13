@@ -12,9 +12,9 @@ AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
 
 2. สถาปัตยกรรมและเทคโนโลยีที่ใช้ (Tech Stack)
 --------------------------------------------------------------------------------
-[Backend - NestJS (TypeScript) @ Port 3001]
+[Backend - NestJS (TypeScript) @ Port `process.env.PORT ?? 3000`]
 - Framework: NestJS + Socket.IO (`RemoteGateway` สำหรับรีโมทมือถือผ่าน QR Code)
-- AI SDK: `@google/genai` (ใช้ API key จาก `backend/.env` -> `GEMINI_API_KEY`)
+- AI SDK: `@google/genai` (โหลด `GEMINI_API_KEY` จาก `backend/.env` ด้วย `process.loadEnvFile()`)
   - JSON / Text Tasks: ใช้ค่าเริ่มต้นของ SDK + fallback models (`GEMINI_MODEL` -> `gemini-3.1-flash-lite` -> `gemini-2.5-flash-lite` -> `gemini-2.5-flash`)
   - Gemini TTS (`synthesizeSpeech`): ใช้ `apiVersion: 'v1beta'` และแปลง PCM 24kHz เป็น WAV Data URL (`pcmToWavDataUrl`) พร้อม in-memory cache และ fallback อัตโนมัติหากโมเดลไม่รองรับ `speechConfig`
 
@@ -44,7 +44,7 @@ Step 3: [RehearsalStep] ซ้อมพรีเซนต์
 - Floating Camera & Local Video Recording: กล้องหน้าลอยปรับขนาดได้ (ลากมุมหรือเลือก S / M / L) พร้อมบันทึกวิดีโอเก็บไว้ดูย้อนหลังหรือดาวน์โหลด
 - Stage Mode & Mobile Remote: เปิดโหมดเต็มจอและสแกน QR Code เพื่อใช้มือถือเป็นรีโมทกดเลื่อนสไลด์
 - AI Slide Check (`POST /api/gemini/check-slide`): ส่งภาพ/เนื้อหาสไลด์ + บทพูดให้ AI ทำ Listener Summary, ตรวจความครบถ้วน และแนะนำจุดปรับปรุง
-- คำถามแทรกระหว่างพรีเซนต์ (`InterruptModal` + `POST /api/gemini/interrupt`): สุ่มถามแทรก (~20% ต่อสไลด์ที่ยังไม่เคยถาม) และอ่านคำถามออกเสียง
+- คำถามแทรกระหว่างพรีเซนต์ (`InterruptModal` + `POST /api/gemini/qa/interrupt`): สุ่มถามแทรก (~20% ต่อสไลด์ที่ยังไม่เคยถาม) และอ่านคำถามออกเสียง
 
 Step 4: [QaStep] จำลองถาม-ตอบ Q&A
 - AI วิเคราะห์สไลด์และบทพูดทั้งหมดเพื่อสร้างคำถามเจาะจุดโหว่ (`POST /api/gemini/qa/generate`)
@@ -54,7 +54,7 @@ Step 4: [QaStep] จำลองถาม-ตอบ Q&A
   - เมื่อกด "เปิด" จะเรียก Gemini TTS และ cache เสียงไว้สำหรับปุ่ม "ฟังซ้ำ" (หากเรียกไม่สำเร็จจะสลับกลับเสียงเบราว์เซอร์อัตโนมัติ)
 
 Step 5: [SummaryStep] แดชบอร์ดสรุปผล
-- สรุปเวลาที่ใช้, คะแนนความพร้อม, สถิติการพูดรายสไลด์, ผลประเมิน Q&A, วิดีโอที่บันทึกไว้ และบทวิเคราะห์ภาพรวมจาก AI (`POST /api/gemini/summary/analyze`)
+- สรุปเวลาที่ใช้, คะแนนความพร้อม, สถิติการพูดรายสไลด์, ผลประเมิน Q&A, วิดีโอที่บันทึกไว้ และบทวิเคราะห์ภาพรวมจาก AI (`POST /api/gemini/analyze-summary`)
 
 4. โครงสร้างไฟล์สำคัญ (Key Files)
 --------------------------------------------------------------------------------
@@ -72,15 +72,19 @@ Step 5: [SummaryStep] แดชบอร์ดสรุปผล
 - `components/RoomSetupModal.jsx` - หน้าต่างตั้งค่าเวลา, โหมดซ้อม, กล้อง, คำถามแทรก, เสียง Gemini
 - `components/UploadStep.jsx` - อัปโหลดและแปลงสไลด์ PDF/รูปภาพ
 - `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก
+- `components/FloatingCamera.jsx` - หน้าต่างกล้องลอยปรับขนาดได้ (ลากมุม / S, M, L)
 - `components/SlideViewer.jsx` - แสดงสไลด์ปัจจุบัน
 - `components/InterruptModal.jsx` - หน้าต่างคำถามแทรกระหว่างพรีเซนต์
 - `components/QaStep.jsx` - หน้าถาม-ตอบ Q&A ท้ายการซ้อม
 - `components/SummaryStep.jsx` - หน้าสรุปผลคะแนนและดาวน์โหลดวิดีโอ
 - `components/RemotePage.jsx` - หน้าจอมือถือสำหรับควบคุมสไลด์ผ่าน QR Code
 - `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`)
+- `lib/metrics.js` - คำนวณ WPM, filler words และสถิติการพูด
+- `lib/slides.js` - แปลงและดึงข้อความจากไฟล์สไลด์ PDF/รูปภาพ
 - `lib/socket.js` - Socket.IO client
 - `lib/speech.js` - จัดการเสียงพูดคำถาม (Gemini TTS + cache + fallback `speakThai`)
-- `lib/useAudioRecorder.js` - Hook อัดเสียง + Web Speech API transcript + filler/dead-air metrics
+- `lib/useAudioRecorder.js` - Hook อัดเสียงและจัดการ blob เสียง
+- `lib/useSpeechRecognition.js` - Hook Web Speech API ถอดเสียงแบบ real-time
 - `lib/useVideoRecorder.js` - Hook อัดวิดีโอกล้องหน้าแบบ Local (WebM)
 - `lib/useFaceLandmarker.js` - Hook MediaPipe FaceLandmarker ตรวจการสบตากล้อง
 
@@ -92,7 +96,7 @@ Step 5: [SummaryStep] แดชบอร์ดสรุปผล
 - ห้าม commit ไฟล์ `backend/.env` (เก็บ `GEMINI_API_KEY` ไว้ในเครื่องเท่านั้น)
 
 [Run Development Servers]
-- Backend: `npm --prefix backend run start:dev` (Port 3001)
+- Backend: `npm --prefix backend run start:dev` (Port `process.env.PORT ?? 3000`)
 - Frontend: `npm --prefix frontend run dev` (Vite proxy `/api` และ `/socket.io` ไปยัง backend)
 - Build Check:
   - `npm --prefix backend run build`
