@@ -4,19 +4,29 @@ const AUDIENCES = [
   { id: 'executive', label: 'ผู้บริหาร' },
 ];
 
-const TIME_OPTIONS = [
+const PRESENT_TIME_OPTIONS = [
+  { value: 0, label: 'ไม่จำกัด' },
+  { value: 5, label: '5 นาที' },
+  { value: 10, label: '10 นาที' },
+  { value: 15, label: '15 นาที' },
+];
+
+const QA_TIME_OPTIONS = [
   { value: 0, label: 'ไม่จำกัด' },
   { value: 3, label: '3 นาที' },
   { value: 5, label: '5 นาที' },
   { value: 10, label: '10 นาที' },
 ];
 
-function TimePicker({ label, value, onChange }) {
+function TimePicker({ label, value, options, maxMinutes, onChange }) {
   return (
     <div>
-      <p className="text-xs font-medium text-muted">{label}</p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted">{label}</p>
+        <span className="text-[11px] text-faint">สูงสุด {maxMinutes} นาที</span>
+      </div>
       <div className="mt-2 grid grid-cols-4 gap-1.5">
-        {TIME_OPTIONS.map((t) => (
+        {options.map((t) => (
           <button
             key={t.value}
             type="button"
@@ -35,13 +45,13 @@ function TimePicker({ label, value, onChange }) {
         <input
           type="number"
           min="0"
-          max="180"
+          max={maxMinutes}
           value={value || ''}
           onChange={(e) => {
-            const num = Math.max(0, Math.min(180, Number(e.target.value) || 0));
+            const num = Math.max(0, Math.min(maxMinutes, Number(e.target.value) || 0));
             onChange(num);
           }}
-          placeholder="กำหนดเวลาเอง"
+          placeholder={`กำหนดเวลาเอง (ไม่เกิน ${maxMinutes} นาที)`}
           className="w-full rounded-lg border border-line bg-paper px-3 py-1.5 text-xs text-ink focus:border-ink focus:outline-none"
         />
         <span className="shrink-0 text-xs text-muted">นาที</span>
@@ -61,6 +71,8 @@ export default function RoomSetupModal({
   onInterruptToggle,
   useGeminiTts = false,
   onGeminiTtsToggle,
+  cameraEnabled = true,
+  onCameraToggle,
   confirmLabel = 'ถัดไป',
   onConfirm,
   onClose,
@@ -142,11 +154,15 @@ export default function RoomSetupModal({
           <TimePicker
             label="เวลาพรีเซนต์"
             value={timeBudget.presentMinutes}
+            options={PRESENT_TIME_OPTIONS}
+            maxMinutes={30}
             onChange={(v) => onTimeBudgetChange({ ...timeBudget, presentMinutes: v })}
           />
           <TimePicker
             label="เวลาถาม-ตอบ"
             value={timeBudget.qaMinutes}
+            options={QA_TIME_OPTIONS}
+            maxMinutes={15}
             onChange={(v) => onTimeBudgetChange({ ...timeBudget, qaMinutes: v })}
           />
         </div>
@@ -154,8 +170,8 @@ export default function RoomSetupModal({
         <div className="space-y-2.5">
           <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
             <div>
-              <p className="text-xs font-medium text-ink">สุ่มถามแทรกระหว่างซ้อม</p>
-              <p className="text-[11px] text-muted">มีคำถามแทรกสั้นๆ หลังพูดบางสไลด์</p>
+              <p className="text-xs font-medium text-ink">สุ่มถามแทรกระหว่างซ้อม (-1 Token/คำถาม)</p>
+              <p className="text-[11px] text-muted">มีคำถามแทรกสั้นๆ หลังพูดบางสไลด์ (ตรวจคำตอบ -1 Token)</p>
             </div>
             <button
               type="button"
@@ -170,11 +186,31 @@ export default function RoomSetupModal({
             </button>
           </div>
 
+          {onCameraToggle && (
+            <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
+              <div>
+                <p className="text-xs font-medium text-ink">เปิดกล้องเช็กสายตา & อัดวิดีโอ</p>
+                <p className="text-[11px] text-muted">เปิดต่อเนื่องอัตโนมัติทั้งช่วงซ้อมพูดและช่วงถาม-ตอบ</p>
+              </div>
+              <button
+                type="button"
+                onClick={onCameraToggle}
+                className={`rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
+                  cameraEnabled
+                    ? 'bg-ink text-paper'
+                    : 'border border-line bg-white text-muted'
+                }`}
+              >
+                {cameraEnabled ? 'เปิด' : 'ปิด'}
+              </button>
+            </div>
+          )}
+
           {onGeminiTtsToggle && (
             <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
               <div>
-                <p className="text-xs font-medium text-ink">เสียงอ่านคำถาม Gemini TTS</p>
-                <p className="text-[11px] text-muted">เปิดเมื่อต้องการเสียงธรรมชาติ (ปิดไว้ใช้เสียงเครื่อง)</p>
+                <p className="text-xs font-medium text-ink">เสียงอ่านคำถาม Gemini TTS (-1 Token/ข้อ)</p>
+                <p className="text-[11px] text-muted">เปิดเมื่อต้องการเสียงธรรมชาติ (ปิดไว้ใช้เสียงเครื่องฟรี)</p>
               </div>
               <button
                 type="button"

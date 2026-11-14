@@ -47,6 +47,7 @@ export function useFaceLandmarker() {
   // สถานะการตรวจจับสด
   const [currentStatus, setCurrentStatus] = useState('off'); // 'eye_contact' | 'looking_down' | 'looking_away' | 'no_face' | 'off'
   const [eyeContactPct, setEyeContactPct] = useState(100);
+  const [lookingDownCount, setLookingDownCount] = useState(0);
   const [poseAngles, setPoseAngles] = useState({ pitch: 0, yaw: 0 });
 
   const videoRef = useRef(null);
@@ -228,6 +229,7 @@ export function useFaceLandmarker() {
                 if (!inLookDownInstanceRef.current && lookDownBufferRef.current === 4) {
                   inLookDownInstanceRef.current = true;
                   lookDownCountRef.current += 1;
+                  setLookingDownCount(lookDownCountRef.current);
                 }
               }
             } else if (lookAwayBufferRef.current >= 4) {
@@ -294,6 +296,7 @@ export function useFaceLandmarker() {
     lookAwayBufferRef.current = 0;
     rollingHistoryRef.current = [];
     setEyeContactPct(100);
+    setLookingDownCount(0);
   }, []);
 
   // 4. สรุปผลการวิเคราะห์เมื่อหยุดพูด
@@ -329,6 +332,7 @@ export function useFaceLandmarker() {
     cameraError,
     currentStatus,
     eyeContactPct,
+    lookingDownCount,
     poseAngles,
     startCamera,
     stopCamera,

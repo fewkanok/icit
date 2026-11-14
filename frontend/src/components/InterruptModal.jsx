@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { evaluateQaAnswer, generateInterruptQuestion } from '../lib/api';
 import { speakQuestion, stopSpeaking } from '../lib/speech';
+import { askConfirm } from './ConfirmModal';
 
 export default function InterruptModal({
   slideNumber,
@@ -79,6 +80,13 @@ export default function InterruptModal({
   async function handleSubmit() {
     if (!question?.question || evaluating) return;
     if (speech.listening) speech.stop();
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อตรวจคำตอบคำถามแทรกนี้ด้วย AI',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
     setEvaluating(true);
     setError(null);
     try {
@@ -192,7 +200,7 @@ export default function InterruptModal({
                 disabled={!answerText.trim() || evaluating}
                 className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/85 disabled:opacity-40 cursor-pointer"
               >
-                {evaluating ? 'กำลังตรวจ...' : 'ส่งคำตอบ'}
+                {evaluating ? 'กำลังตรวจ...' : 'ส่งคำตอบ (-1 Token)'}
               </button>
             </div>
           </div>
@@ -202,7 +210,6 @@ export default function InterruptModal({
           <div className="space-y-3">
             <div className="flex items-center justify-between rounded-lg bg-paper px-3.5 py-2.5">
               <span className="text-sm font-medium text-ink">{evaluation.directness}</span>
-              <span className="font-mono text-base font-semibold text-ink">{evaluation.score} / 10</span>
             </div>
             <p className="text-sm text-muted">{evaluation.feedback}</p>
             {evaluation.betterAnswer && (

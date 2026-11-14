@@ -14,28 +14,69 @@ AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
   2) ไม่รู้ว่าสิ่งที่พูดไป คนฟังจับใจความสำคัญได้ตรงกับที่ตั้งใจหรือไม่
   3) ขาดการฝึกสบตากล้อง/ผู้ฟัง และการคุมเวลาจริงให้พอดีกับสไลด์
   4) ตื่นเต้นเมื่อถูกถามแทรกระหว่างพูด หรือเจอคำถาม Q&A ที่ไม่ทันตั้งตัว
+  5) เมื่อซ้อมจบและดูคลิปย้อนหลัง หาจุดที่พลาดไม่เจอ ต้องไล่กรอวิดีโอเองทั้งหมด
 - จุดเด่นของระบบ (Value Proposition):
-  1) วิเคราะห์ครบ 3 มิติในเว็บเดียว: เนื้อหา (AI Alignment & Reverse Summary), การพูด (WPM / Filler / Dead Air) และภาษากาย (Eye Contact + วิดีโอย้อนหลัง)
-  2) จำลองบรรยากาศเวทีจริง: ปรับโทนตามกลุ่มผู้ฟัง, ซ้อมต่อเนื่องแบบไม่หยุด, รีโมทสไลด์ผ่าน QR มือถือ และคำถามแทรกพร้อมเสียงถามสด (Gemini TTS)
-  3) ซ้อมได้ทันทีบนเบราว์เซอร์โดยไม่ต้องติดตั้งโปรแกรมเพิ่ม และปรับปรุงจุดบกพร่องรายสไลด์ได้ทันที
+  1) วิเคราะห์ครบ 3 มิติในเว็บเดียว:
+     - เนื้อหา (AI Slide Check, Listener Summary & Q&A Evaluation)
+     - การพูด (WPM, Filler Words, Dead Air)
+     - ภาษากาย (Eye Contact %, นับครั้ง/วินาทีการก้มอ่านโพย + วิดีโอย้อนหลัง)
+  2) Timeline Replay & AI Timeline Coach:
+     - ปักหมุดเหตุการณ์สำคัญบนไทม์ไลน์วิดีโออัตโนมัติ (เริ่มสไลด์, เริ่มตอบ Q&A, ก้มอ่าน/สายตาหลุดกล้อง, พูดเร็ว/พูดช้า, เงียบค้าง, พบคำติดปาก) คลิกหมุดเพื่อกระโดดไปวินาทีนั้นทันที
+     - ส่งข้อมูลหมุดเวลา (Timeline Events) พร้อมคำพูดจริงให้ AI วิเคราะห์เจาะจงเป็นรายวินาที ทั้งภาพรวมพรีเซนต์และช่วงตอบคำถาม Q&A (เน้นคำแนะนำเชิงคุณภาพ ไม่ใช้คะแนนตัวเลข `/10` หรือ `/100`)
+  3) จำลองบรรยากาศเวทีจริง:
+     - ปรับโทนตามกลุ่มผู้ฟัง, ซ้อมต่อเนื่องแบบไม่หยุด, รีโมทสไลด์ผ่าน QR มือถือ, และคำถามแทรกพร้อมเสียงถามสด (Gemini TTS)
+  4) บันทึกประวัติการซ้อม & พัฒนาต่อเนื่อง:
+     - เข้าสู่ระบบด้วย Supabase Auth เก็บประวัติสถิติการซ้อมแต่ละครั้งลง PostgreSQL ผ่าน Prisma พร้อมดูย้อนหลังได้
 
-2. สถาปัตยกรรมและเทคโนโลยีที่ใช้ (Tech Stack)
+2. โมเดลธุรกิจและระบบ Token (Business Model & Token Economy)
+--------------------------------------------------------------------------------
+- รูปแบบธุรกิจ: Freemium + Pay-per-Use (Token Economy)
+  - เปิดให้ซ้อมและเก็บสถิติพื้นฐานฟรีทั้งหมด เพื่อให้ผู้ใช้เห็นจุดพลาดของตัวเองผ่าน Timeline Replay ก่อนตัดสินใจใช้ Token เรียก AI โค้ชเจาะลึก
+
+[ส่วนที่ใช้งานฟรี (0 Tokens)]
+- อัปโหลดสไลด์ PDF / รูปภาพ และซ้อมพูด (ทีละสไลด์ หรือ ซ้อมต่อเนื่อง)
+- Real-time Speech Metrics (WPM, คำติดปาก, Dead Air) และ Eye Contact Tracking
+- อัดเสียง + อัดวิดีโอหน้ากล้อง (รวมคลิปทุกสไลด์เป็นคลิปเดียวด้วย `mediaMerge.js` และดาวน์โหลดได้)
+- Timeline Replay พร้อมหมุดเหตุการณ์ทุกจุดบนวิดีโอ
+- รีโมทเลื่อนสไลด์ผ่าน QR Code มือถือ + บันทึกประวัติการซ้อม
+
+[อัตราการใช้ Token สำหรับฟีเจอร์ AI (`backend/src/tokens/tokens.service.ts`)]
+- ระบบหัก Token ฝั่ง Backend แบบ atomic transaction และคืน Token อัตโนมัติ (`refundTokens`) หากเรียก Gemini ไม่สำเร็จ
+  1) ตรวจความตรงสไลด์ด้วย AI (`POST /api/gemini/check-slide`): 1 Token
+  2) สร้างคำถามแทรกระหว่างซ้อม (`POST /api/gemini/qa/interrupt`): 1 Token
+  3) สร้างชุดคำถาม Q&A (`POST /api/gemini/qa/generate`): 1 Token
+  4) ประเมินคำตอบ Q&A พร้อมหมุดเวลา (`POST /api/gemini/qa/evaluate`): 1 Token / ข้อ
+  5) เสียงพูด AI Gemini TTS (`POST /api/gemini/tts`): 1 Token (มี in-memory cache กดฟังซ้ำคำเดิมไม่เสียเพิ่ม)
+  6) วิเคราะห์สรุปผลภาพรวม + คำแนะนำตามช่วงเวลา Timeline (`POST /api/gemini/analyze-summary`): 2 Tokens
+
+[การรับ Token และแพ็กเกจเติมเงิน (Acquisition & Top-up)]
+- Welcome Bonus: สมัครสมาชิกใหม่รับฟรีทันที 30 Tokens (`WELCOME_BONUS_TOKENS = 30`)
+- Referral Program (ชวนเพื่อนซ้อม):
+  - แชร์ลิงก์ `/?ref=CODE` เมื่อเพื่อนสมัครและซ้อมจริงครบอย่างน้อย 30 วินาที (`MIN_SESSION_SEC_FOR_REFERRAL = 30`) ทั้งผู้ชวนและเพื่อนรับเพิ่มคนละ 10 Tokens (สูงสุด 10 คน/บัญชี)
+- แพ็กเกจเติม Token (ปัจจุบันเป็นระบบเติมจำลองสำหรับทดสอบโมเดลธุรกิจใน `WalletModal`):
+  - Starter Pack: +50 Tokens (49 บาท จำลอง)
+  - Pro Pack: +150 Tokens (99 บาท จำลอง)
+
+3. สถาปัตยกรรมและเทคโนโลยีที่ใช้ (Tech Stack)
 --------------------------------------------------------------------------------
 [Backend - NestJS (TypeScript) @ Port `process.env.PORT ?? 3000`]
-- Framework: NestJS + Socket.IO (`RemoteGateway` สำหรับรีโมทมือถือผ่าน QR Code)
+- Framework & Security: NestJS + `ValidationPipe({ whitelist: true })` + `@nestjs/throttler` (Rate Limiting) + CORS
+- Database & Auth: PostgreSQL + Prisma (`PrismaService`) + Supabase Auth (`SupabaseAuthGuard` ตรวจสอบ JWT)
+- Real-time Remote: Socket.IO (`RemoteGateway` สำหรับรีโมทมือถือผ่าน QR Code)
 - AI SDK: `@google/genai` (โหลด `GEMINI_API_KEY` จาก `backend/.env` ด้วย `process.loadEnvFile()`)
   - JSON / Text Tasks: ใช้ค่าเริ่มต้นของ SDK + fallback models (`GEMINI_MODEL` -> `gemini-3.1-flash-lite` -> `gemini-2.5-flash-lite` -> `gemini-2.5-flash`)
   - Gemini TTS (`synthesizeSpeech`): ใช้ `apiVersion: 'v1beta'` และแปลง PCM 24kHz เป็น WAV Data URL (`pcmToWavDataUrl`) พร้อม in-memory cache และ fallback อัตโนมัติหากโมเดลไม่รองรับ `speechConfig`
 
 [Frontend - React + Vite]
 - UI & Styling: React + Tailwind CSS (ห้ามใส่ emoji ในข้อความ UI ทุกจุด, ใช้ภาษาไทยที่เข้าใจง่าย)
+- Auth Client: `@supabase/supabase-js` (`supabase.js`)
 - Slide Viewer: `pdfjs-dist` (เรนเดอร์ไฟล์ PDF เป็นภาพ และดึงข้อความแต่ละสไลด์)
 - Speech-to-Text: Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) ถอดเสียงไทย/อังกฤษแบบ real-time
-- Eye Contact Tracking: MediaPipe `@mediapipe/tasks-vision` (`FaceLandmarker`) วิเคราะห์การมองกล้อง
-- Recording: MediaRecorder API บันทึกเสียงพูด + บันทึกวิดีโอกล้องหน้าแบบ Local (ดาวน์โหลดเป็น WebM)
+- Eye Contact Tracking: MediaPipe `@mediapipe/tasks-vision` (`FaceLandmarker`) วิเคราะห์การมองกล้องและนับการก้มอ่าน (`lookingDownCount`, `lookingDownSec`)
+- Recording & Media Merge: MediaRecorder API บันทึกเสียง/วิดีโอ WebM + `mediaMerge.js` รวมคลิปหลายสไลด์และ Q&A เป็นไฟล์เดียวพร้อมชดเชยเวลาสำหรับ Timeline Replay
 - Mobile Remote: `qrcode.react` + `socket.io-client` เชื่อมต่อรีโมทเปลี่ยนสไลด์จากมือถือ
 
-3. ลำดับขั้นตอนการทำงานในแอปปัจจุบัน (Current User Journey)
+4. ลำดับขั้นตอนการทำงานในแอปปัจจุบัน (Current User Journey)
 --------------------------------------------------------------------------------
 Step 1: [ModeStep] เลือกกลุ่มผู้ฟังและตั้งค่าเริ่มต้น
 - เลือกกลุ่มผู้ฟัง (Audience): `general` (คนทั่วไป), `teacher` (อาจารย์/กรรมการ), `executive` (ผู้บริหาร/นักลงทุน)
@@ -48,66 +89,81 @@ Step 3: [RehearsalStep] ซ้อมพรีเซนต์
 - รองรับ 2 โหมด:
   1) ซ้อมทีละสไลด์ (Slide-by-Slide): อัดเสียง/ตรวจ AI ทีละหน้า และซ่อมเฉพาะหน้าได้
   2) ซ้อมต่อเนื่องแบบไม่หยุด (Continuous Dress Rehearsal): พรีเซนต์รวดเดียวตั้งแต่ต้นจนจบแล้วสรุปผลรวม
-- Target Timer: นับเวลาซ้อมรวมเทียบกับเป้าหมายเวลาที่ตั้งไว้
-- Real-time Metrics: ความเร็วการพูด (WPM), คำฟุ่มเฟือย (Filler Words), ช่วงเงียบ (Dead Air), เปอร์เซ็นต์การสบตากล้อง (Eye Contact %)
-- Floating Camera & Local Video Recording: กล้องหน้าลอยปรับขนาดได้ (ลากมุมหรือเลือก S / M / L) พร้อมบันทึกวิดีโอเก็บไว้ดูย้อนหลังหรือดาวน์โหลด
+- Target Timer & Real-time Metrics: จับเวลาซ้อมเทียบเป้า, WPM, คำติดปาก, Dead Air, Eye Contact % และบันทึกหมุด Timeline (`slide`, `eye`, `pace_fast`, `pace_slow`, `deadair`, `filler`)
+- Floating Camera & Local Video Recording: กล้องหน้าลอยปรับขนาดได้ (ลากมุมหรือเลือก S / M / L)
 - Stage Mode & Mobile Remote: เปิดโหมดเต็มจอและสแกน QR Code เพื่อใช้มือถือเป็นรีโมทกดเลื่อนสไลด์
-- AI Slide Check (`POST /api/gemini/check-slide`): ส่งภาพ/เนื้อหาสไลด์ + บทพูดให้ AI ทำ Listener Summary, ตรวจความครบถ้วน และแนะนำจุดปรับปรุง
-- คำถามแทรกระหว่างพรีเซนต์ (`InterruptModal` + `POST /api/gemini/qa/interrupt`): สุ่มถามแทรก (~20% ต่อสไลด์ที่ยังไม่เคยถาม) และอ่านคำถามออกเสียง
+- AI Slide Check (`POST /api/gemini/check-slide`): ส่งภาพ/เนื้อหาสไลด์ + บทพูดให้ AI ทำ Listener Summary, ตรวจความครบถ้วน และแนะนำจุดปรับปรุง (1 Token)
+- คำถามแทรกระหว่างพรีเซนต์ (`InterruptModal` + `POST /api/gemini/qa/interrupt`): สุ่มถามแทรก (~20% ต่อสไลด์ที่ยังไม่เคยถาม) และอ่านคำถามออกเสียง (1 Token)
 
 Step 4: [QaStep] จำลองถาม-ตอบ Q&A
-- AI วิเคราะห์สไลด์และบทพูดทั้งหมดเพื่อสร้างคำถามเจาะจุดโหว่ (`POST /api/gemini/qa/generate`)
-- ผู้ใช้กดอัดเสียงตอบคำถามสด และให้ AI ประเมินคำตอบ (`POST /api/gemini/qa/evaluate`)
-- Toggle เสียง Gemini TTS (`POST /api/gemini/tts`):
-  - ค่าเริ่มต้นเป็น "ปิด" (ใช้เสียงเบราว์เซอร์ `speechSynthesis` เพื่อความเร็วและประหยัดโควต้าเวลาเทส)
-  - เมื่อกด "เปิด" จะเรียก Gemini TTS และ cache เสียงไว้สำหรับปุ่ม "ฟังซ้ำ" (หากเรียกไม่สำเร็จจะสลับกลับเสียงเบราว์เซอร์อัตโนมัติ)
+- AI วิเคราะห์สไลด์และบทพูดทั้งหมดเพื่อสร้างคำถามเจาะจุดโหว่ (`POST /api/gemini/qa/generate`, 1 Token)
+- ผู้ใช้กดอัดเสียง/วิดีโอตอบคำถามสด พร้อมจับเวลาและปักหมุด Timeline (`qa`, `eye`, `pace_fast`, `pace_slow`, `deadair`, `filler`) ต่อข้อ
+- Toggle เสียง Gemini TTS (`POST /api/gemini/tts`, 1 Token):
+  - ค่าเริ่มต้นเป็น "ปิด" (ใช้เสียงเบราว์เซอร์ `speechSynthesis` เพื่อความเร็วและประหยัด Token)
+  - เมื่อกด "เปิด" จะเรียก Gemini TTS และ cache เสียงไว้สำหรับปุ่ม "ฟังซ้ำ"
 
-Step 5: [SummaryStep] แดชบอร์ดสรุปผล
-- สรุปเวลาที่ใช้, คะแนนความพร้อม, สถิติการพูดรายสไลด์, ผลประเมิน Q&A, วิดีโอที่บันทึกไว้ และบทวิเคราะห์ภาพรวมจาก AI (`POST /api/gemini/analyze-summary`)
+Step 5: [SummaryStep] แดชบอร์ดสรุปผล & Timeline Replay
+- แสดงภาพรวมแบบเชิงคุณภาพ (ไม่แสดงคะแนนตัวเลข `/10` หรือ `/100`), สถิติรายสไลด์, และ `<TimelineReplayPlayer />` ทั้งแบบรวมคลิปทั้งรอบ (สไลด์ + Q&A) และแบบแยกดูเฉพาะสไลด์/เฉพาะข้อ Q&A
+- ปุ่ม **"วิเคราะห์ภาพรวมด้วย AI (-2 Tokens)"** (`POST /api/gemini/analyze-summary`): ส่งเนื้อหาสไลด์, คำพูดจริง, สถิติ, Q&A และ `timelineEvents` ให้ AI สรุปมุมมองผู้ฟัง, ประเด็นที่ครบ/ขาด, บทพูดที่เกลาใหม่ และคำแนะนำตามช่วงเวลา (`timelineAdvice`)
+- ปุ่ม **"ให้ AI ตรวจคำตอบ Q&A (-1 Token/ข้อ)"** (`POST /api/gemini/qa/evaluate`): ส่งคำถาม, บริบทสไลด์, คำตอบสด และ `timelineEvents` ของข้อนั้นให้ AI ประเมินระดับความตรงประเด็น (`directness`), คำติชม, แนวทางตอบที่กระชับขึ้น และข้อสังเกตจังหวะระหว่างตอบ (`timelineNote`)
+- บันทึกผลการซ้อมลงฐานข้อมูลอัตโนมัติ (`POST /api/sessions`) และดูย้อนหลังผ่าน `HistoryModal`
 
-4. โครงสร้างไฟล์สำคัญ (Key Files)
+5. โครงสร้างไฟล์สำคัญ (Key Files)
 --------------------------------------------------------------------------------
 [Backend - `backend/src/`]
-- `main.ts` - Bootstrap NestJS + CORS + JSON body limit
-- `app.module.ts` - Root module (`GeminiModule`, `RemoteModule`)
-- `gemini/gemini.controller.ts` - REST endpoints (`/api/gemini/*`)
-- `gemini/gemini.service.ts` - Logic เรียก Gemini API, JSON fallback, และ TTS (`v1beta` + WAV conversion)
+- `main.ts` - Bootstrap NestJS + CORS + `ValidationPipe` + JSON body limit
+- `app.module.ts` - Root module (`ThrottlerModule`, `PrismaModule`, `AuthModule`, `TokensModule`, `SessionsModule`, `GeminiModule`, `RemoteModule`)
+- `auth/` - `auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth.module.ts` (Supabase JWT + Welcome Bonus + Referral)
+- `tokens/` - `tokens.controller.ts`, `tokens.service.ts`, `tokens.module.ts` (Token balance, transactions, `spendTokens`, `refundTokens`, `mockTopup`)
+- `sessions/` - `sessions.controller.ts`, `sessions.service.ts`, `sessions.module.ts` (บันทึก/ดึงประวัติการซ้อม + แจกรางวัล Referral เมื่อซ้อมครบเกณฑ์)
+- `prisma/` - `prisma.service.ts`, `prisma.module.ts` (PostgreSQL ORM)
+- `gemini/gemini.controller.ts` - REST endpoints (`/api/gemini/*`) พร้อม Rate Limit และหัก/คืน Token
+- `gemini/gemini.service.ts` - Logic เรียก Gemini API, JSON fallback, Timeline-aware prompts (`analyzeSummary`, `evaluateQa`) และ TTS (`v1beta` + WAV conversion)
+- `gemini/dto/gemini.dto.ts` - DTOs สำหรับ `ValidationPipe` (`SummaryTimelineEventDto`, `QaEvaluateDto`, `SummaryAnalyzeDto`, ฯลฯ)
 - `remote/remote.gateway.ts` - Socket.IO gateway สำหรับ QR Mobile Remote
 
 [Frontend - `frontend/src/`]
-- `App.jsx` - Main state & 5-step flow (`mode` -> `upload` -> `rehearsal` -> `qa` -> `summary`) + route `/remote/:roomId`
-- `components/Header.jsx` - แถบนำทางด้านบนและตัวบอกขั้นตอน
+- `App.jsx` - Main state, Supabase Auth session, Token Wallet sync, 5-step flow (`mode` -> `upload` -> `rehearsal` -> `qa` -> `summary`) + route `/remote/:roomId`
+- `components/Header.jsx` - แถบนำทางด้านบน, ตัวบอกขั้นตอน, ปุ่มดูประวัติ, และแสดงยอด Token
+- `components/WalletModal.jsx` - หน้าต่างกระเป๋า Token, ลิงก์ชวนเพื่อน (`?ref=`), ประวัติธุรกรรม และเติม Token จำลอง
+- `components/HistoryModal.jsx` - หน้าต่างดูประวัติการซ้อมย้อนหลัง
 - `components/ModeStep.jsx` - หน้าเลือกกลุ่มผู้ฟังและเข้าตั้งค่าห้องซ้อม
 - `components/RoomSetupModal.jsx` - หน้าต่างตั้งค่าเวลา, โหมดซ้อม, กล้อง, คำถามแทรก, เสียง Gemini
 - `components/UploadStep.jsx` - อัปโหลดและแปลงสไลด์ PDF/รูปภาพ
-- `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก
+- `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก, ปักหมุด Timeline
 - `components/FloatingCamera.jsx` - หน้าต่างกล้องลอยปรับขนาดได้ (ลากมุม / S, M, L)
 - `components/SlideViewer.jsx` - แสดงสไลด์ปัจจุบัน
 - `components/InterruptModal.jsx` - หน้าต่างคำถามแทรกระหว่างพรีเซนต์
-- `components/QaStep.jsx` - หน้าถาม-ตอบ Q&A ท้ายการซ้อม
-- `components/SummaryStep.jsx` - หน้าสรุปผลคะแนนและดาวน์โหลดวิดีโอ
+- `components/QaStep.jsx` - หน้าถาม-ตอบ Q&A ท้ายการซ้อม พร้อมอัดเสียง/วิดีโอและปักหมุด Timeline
+- `components/SummaryStep.jsx` - แดชบอร์ดสรุปผลเชิงคุณภาพ, Timeline Replay, AI Summary, AI Q&A Eval และดาวน์โหลดคลิป
+- `components/TimelineReplayPlayer.jsx` - Video player พร้อมแถบหมุดเหตุการณ์คลิกกระโดดไปยังวินาทีนั้นได้ทันที
+- `components/ConfirmModal.jsx` - หน้าต่างยืนยันกลาง
 - `components/RemotePage.jsx` - หน้าจอมือถือสำหรับควบคุมสไลด์ผ่าน QR Code
-- `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`)
-- `lib/metrics.js` - คำนวณ WPM, filler words และสถิติการพูด
+- `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`, `/api/auth/*`, `/api/tokens/*`, `/api/sessions/*`)
+- `lib/supabase.js` - Supabase client
+- `lib/mediaMerge.js` - รวมไฟล์เสียง/วิดีโอหลายสไลด์และคำนวณ offset ของ Timeline Events
+- `lib/metrics.js` - คำนวณ WPM, filler words (`countFillers`) และสถิติการพูด
 - `lib/slides.js` - แปลงและดึงข้อความจากไฟล์สไลด์ PDF/รูปภาพ
 - `lib/socket.js` - Socket.IO client
 - `lib/speech.js` - จัดการเสียงพูดคำถาม (Gemini TTS + cache + fallback `speakThai`)
-- `lib/useAudioRecorder.js` - Hook อัดเสียงและจัดการ blob เสียง
+- `lib/useAudioRecorder.js` - Hook อัดเสียงและตรวจจับช่วงเงียบ (`isDeadAir`)
 - `lib/useSpeechRecognition.js` - Hook Web Speech API ถอดเสียงแบบ real-time
 - `lib/useVideoRecorder.js` - Hook อัดวิดีโอกล้องหน้าแบบ Local (WebM)
-- `lib/useFaceLandmarker.js` - Hook MediaPipe FaceLandmarker ตรวจการสบตากล้อง
+- `lib/useFaceLandmarker.js` - Hook MediaPipe FaceLandmarker ตรวจการสบตากล้องและนับการก้มอ่าน (`lookingDownCount`, `lookingDownSec`)
 
-5. กติกาการพัฒนาและคำสั่งรันโปรเจกต์ (Conventions & Commands)
+6. กติกาการพัฒนาและคำสั่งรันโปรเจกต์ (Conventions & Commands)
 --------------------------------------------------------------------------------
 [Conventions]
 - ห้ามใช้ emoji ในข้อความ UI ทุกจุดเด็ดขาด
 - ข้อความ UI ใช้ภาษาไทยที่เป็นมิตร กระชับ อ่านง่ายสำหรับผู้เริ่มต้น
-- ห้าม commit ไฟล์ `backend/.env` (เก็บ `GEMINI_API_KEY` ไว้ในเครื่องเท่านั้น)
+- ไม่แสดงคะแนนตัวเลขแบบสุ่มๆ (`/10`, `/100`) ให้เน้นคำแนะนำเชิงคุณภาพและจุดสังเกตจริง
+- ห้าม commit ไฟล์ `.env` (`backend/.env` และ `frontend/.env`)
 
-[Run Development Servers]
+[Run Development Servers & Checks]
 - Backend: `npm --prefix backend run start:dev` (Port `process.env.PORT ?? 3000`)
 - Frontend: `npm --prefix frontend run dev` (Vite proxy `/api` และ `/socket.io` ไปยัง backend)
-- Build Check:
+- Build & Test Check:
   - `npm --prefix backend run build`
+  - `npm --prefix backend test`
   - `npm --prefix frontend run build`
 ================================================================================

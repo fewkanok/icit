@@ -3,9 +3,10 @@ import { useCallback, useRef } from 'react';
 function getSupportedVideoMime() {
   if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return '';
   const types = [
-    'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
     'video/webm',
+    'video/mp4;codecs=avc1,mp4a.40.2',
     'video/mp4',
   ];
   for (const t of types) {

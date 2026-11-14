@@ -12,6 +12,8 @@ export default function ModeStep({
   onInterruptToggle,
   useGeminiTts,
   onGeminiTtsToggle,
+  cameraEnabled = true,
+  onCameraToggle,
   onNext,
 }) {
   const [setupOpen, setSetupOpen] = useState(false);
@@ -69,6 +71,8 @@ export default function ModeStep({
           onInterruptToggle={onInterruptToggle}
           useGeminiTts={useGeminiTts}
           onGeminiTtsToggle={onGeminiTtsToggle}
+          cameraEnabled={cameraEnabled}
+          onCameraToggle={onCameraToggle}
           confirmLabel="ถัดไป: เตรียมสไลด์"
           onConfirm={() => {
             setSetupOpen(false);

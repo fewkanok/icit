@@ -1,6 +1,7 @@
 import { synthesizeSpeechWithAi } from './api';
 
 const ttsCache = new Map();
+const ttsPending = new Map();
 let activeAudio = null;
 
 // เลือกเสียงภาษาไทยที่ธรรมชาติที่สุดที่มีในเบราว์เซอร์ (รองรับ Edge Natural/Online voices ก่อนเสียงระบบทั่วไป)
@@ -65,6 +66,36 @@ function playAudioUrl(url) {
   return audio.play();
 }
 
+async function fetchGeminiTtsUrl(clean) {
+  if (ttsCache.has(clean)) return ttsCache.get(clean);
+  if (ttsPending.has(clean)) return ttsPending.get(clean);
+
+  const req = synthesizeSpeechWithAi(clean)
+    .then((data) => {
+      if (data?.audioDataUrl) {
+        ttsCache.set(clean, data.audioDataUrl);
+        return data.audioDataUrl;
+      }
+      return null;
+    })
+    .finally(() => {
+      ttsPending.delete(clean);
+    });
+
+  ttsPending.set(clean, req);
+  return req;
+}
+
+export async function preloadQuestionSpeech(text) {
+  const clean = text?.trim();
+  if (!clean || ttsCache.has(clean)) return;
+  try {
+    await fetchGeminiTtsUrl(clean);
+  } catch {
+    // ไม่เป็นไร ค่อย fallback ตอนเล่นจริง
+  }
+}
+
 export async function speakQuestion(text, { useGemini = false } = {}) {
   const clean = text?.trim();
   if (!clean) return;
@@ -74,21 +105,10 @@ export async function speakQuestion(text, { useGemini = false } = {}) {
     return;
   }
 
-  const cached = ttsCache.get(clean);
-  if (cached) {
-    try {
-      await playAudioUrl(cached);
-      return;
-    } catch {
-      // fallback ด้านล่าง
-    }
-  }
-
   try {
-    const data = await synthesizeSpeechWithAi(clean);
-    if (data?.audioDataUrl) {
-      ttsCache.set(clean, data.audioDataUrl);
-      await playAudioUrl(data.audioDataUrl);
+    const url = await fetchGeminiTtsUrl(clean);
+    if (url) {
+      await playAudioUrl(url);
       return;
     }
   } catch {

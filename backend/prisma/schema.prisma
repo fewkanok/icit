@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String                 @id @db.Uuid
+  email            String                 @unique
+  name             String?
+  avatarUrl        String?
+  tokenBalance     Int                    @default(0)
+  referralCode     String                 @unique
+  referredBy       String?                @db.Uuid
+  referralRewarded Boolean                @default(false)
+  lastShareBonusAt DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  transactions     TokenTransaction[]
+  sessions         RehearsalSession[]
+  participations   RehearsalParticipant[]
+}
+
+model TokenTransaction {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  amount      Int
+  type        String
+  description String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model RehearsalSession {
+  id               String                 @id @default(uuid()) @db.Uuid
+  userId           String                 @db.Uuid
+  deckName         String
+  audience         String                 @default("general")
+  rehearsalMode    String                 @default("per_slide")
+  isGroup          Boolean                @default(false)
+  roomCode         String?
+  shareId          String?                @unique
+  slideCount       Int                    @default(0)
+  totalDurationSec Int                    @default(0)
+  avgWpm           Int                    @default(0)
+  avgEyeContactPct Int?
+  overallScore     Int?
+  slidesJson       Json?
+  qaJson           Json?
+  summaryJson      Json?
+  createdAt        DateTime               @default(now())
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participants     RehearsalParticipant[]
+
+  @@index([userId, createdAt])
+}
+
+model RehearsalParticipant {
+  id               String           @id @default(uuid()) @db.Uuid
+  sessionId        String           @db.Uuid
+  userId           String?          @db.Uuid
+  displayName      String
+  role             String           @default("member")
+  slideIndexes     Int[]
+  durationSec      Int              @default(0)
+  avgWpm           Int              @default(0)
+  avgEyeContactPct Int?
+  transcript       String?
+  joinedAt         DateTime         @default(now())
+  session          RehearsalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([userId])
+}

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatTime, pace, PACE_TEXT } from '../lib/metrics';
-import { analyzeSummaryWithAi } from '../lib/api';
+import { analyzeSummaryWithAi, evaluateQaAnswer, saveRehearsalSession } from '../lib/api';
+import { mergeAudioTracks, mergeVideoTracks } from '../lib/mediaMerge';
+import { askConfirm } from './ConfirmModal';
+import TimelineReplayPlayer from './TimelineReplayPlayer';
 
 function getSlideText(slide) {
   if (!slide) return '';
@@ -10,13 +13,18 @@ function getSlideText(slide) {
 }
 
 export default function SummaryStep({
+  user,
   deck,
   audience,
+  rehearsalMode = 'per_slide',
   timeBudget,
   results,
   qaResults = [],
   aiSummary,
   onAiSummaryChange,
+  savedSessionId = null,
+  onSavedSessionIdChange,
+  onUpdateQaResults,
   onBack,
   onReRecordSlide,
   onUpdateTranscript,
@@ -61,13 +69,67 @@ export default function SummaryStep({
   const [editingIndex, setEditingIndex] = useState(null);
   const [editText, setEditText] = useState('');
   const [openVideoIndex, setOpenVideoIndex] = useState(null);
+  const [openQaVideoIndex, setOpenQaVideoIndex] = useState(null);
 
   // สำหรับวิเคราะห์ผลด้วย Gemini AI
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  const [qaEvaluating, setQaEvaluating] = useState(false);
+  const [qaEvalError, setQaEvalError] = useState(null);
+
+  const unevaluatedQaCount = qaResults.filter(
+    (q) => !q.isInterrupt && !q.feedback && !q.directness && q.answerTranscript?.trim(),
+  ).length;
+
+  const handleEvaluateAllQa = async () => {
+    if (qaEvaluating || unevaluatedQaCount === 0) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: `ยืนยันการใช้ ${unevaluatedQaCount} Tokens`,
+      message: `ระบบจะใช้ ${unevaluatedQaCount} Tokens (1 Token/ข้อ) เพื่อตรวจคำตอบช่วงถาม-ตอบทั้งหมดด้วย AI`,
+      confirmText: `ใช้ ${unevaluatedQaCount} Tokens`,
+    });
+    if (!ok) return;
+    setQaEvaluating(true);
+    setQaEvalError(null);
+    try {
+      const updatedQaOnly = [];
+      for (const q of qaResults) {
+        if (q.isInterrupt) continue;
+        if (q.feedback || q.directness || !q.answerTranscript?.trim()) {
+          updatedQaOnly.push(q);
+          continue;
+        }
+        const slide = deck.slides[q.slideIndex ?? 0];
+        const evaluation = await evaluateQaAnswer({
+          question: q.question,
+          slideContext: getSlideText(slide),
+          answerTranscript: q.answerTranscript.trim(),
+          audience,
+          timelineEvents: Array.isArray(q.timelineEvents) ? q.timelineEvents : [],
+        });
+        updatedQaOnly.push({
+          ...q,
+          ...evaluation,
+        });
+      }
+      onUpdateQaResults?.(updatedQaOnly);
+    } catch (err) {
+      setQaEvalError(err.message || 'ไม่สามารถตรวจคำตอบ Q&A ได้');
+    } finally {
+      setQaEvaluating(false);
+    }
+  };
 
   const runAiAnalysis = async () => {
     if (done.length === 0 || aiLoading) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 2 Tokens',
+      message: 'ระบบจะใช้ 2 Tokens เพื่อวิเคราะห์สรุปผลและแนะนำประโยคทั้งรอบซ้อมด้วย AI',
+      confirmText: 'ใช้ 2 Tokens',
+    });
+    if (!ok) return;
     setAiLoading(true);
     setAiError(null);
     try {
@@ -89,6 +151,7 @@ export default function SummaryStep({
           answerTranscript: q.answerTranscript,
           score: q.score,
         })),
+        timelineEvents: mergedTimelineEvents,
       };
       const data = await analyzeSummaryWithAi(payload);
       onAiSummaryChange?.(data);
@@ -99,12 +162,150 @@ export default function SummaryStep({
     }
   };
 
+  const savedSessionIdRef = useRef(savedSessionId);
+  if (savedSessionId && !savedSessionIdRef.current) {
+    savedSessionIdRef.current = savedSessionId;
+  }
+  const savingPromiseRef = useRef(null);
+  const [referralAwarded, setReferralAwarded] = useState(false);
+  const [refCopied, setRefCopied] = useState(false);
+
   useEffect(() => {
-    if (!aiSummary && done.length > 0) {
-      runAiAnalysis();
-    }
+    if (!user || done.length === 0) return;
+    let active = true;
+
+    const runSave = async () => {
+      if (!savedSessionIdRef.current && savingPromiseRef.current) {
+        await savingPromiseRef.current.catch(() => {});
+      }
+      if (!active) return;
+
+      const payload = {
+        sessionId: savedSessionIdRef.current || undefined,
+        deckName: deck.name,
+        audience,
+        rehearsalMode,
+        isGroup: false,
+        slideCount: deck.slides.length,
+        totalDurationSec: totalTime,
+        avgWpm,
+        avgEyeContactPct: avgEyeContact,
+        overallScore: null,
+        slidesJson: rows.map((x) => ({
+          index: x.i,
+          title: x.s?.title || `หน้า ${x.i + 1}`,
+          duration: x.r?.duration || 0,
+          wpm: x.r?.wpm || 0,
+          fillersCount: x.r?.fillers?.total || 0,
+          deadAirCount: x.r?.deadAir?.count || 0,
+          transcript: x.r?.transcript || '',
+          eyeContactPct: x.r?.vision?.cameraUsed ? x.r.vision.eyeContactPct : null,
+        })),
+        qaJson: qaResults.map(({ audioUrl, videoUrl, videoExt, ...rest }) => rest),
+        summaryJson: aiSummary || null,
+      };
+
+      const req = saveRehearsalSession(payload)
+        .then((res) => {
+          if (res?.session?.id) {
+            savedSessionIdRef.current = res.session.id;
+            onSavedSessionIdChange?.(res.session.id);
+          }
+          if (active && res?.referralBonusAwarded) {
+            setReferralAwarded(true);
+          }
+          return res;
+        })
+        .catch((err) => {
+          console.warn('[SummaryStep] Save session failed:', err);
+        })
+        .finally(() => {
+          if (savingPromiseRef.current === req) {
+            savingPromiseRef.current = null;
+          }
+        });
+
+      savingPromiseRef.current = req;
+      await req;
+    };
+
+    void runSave();
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id, aiSummary, qaResults]);
+
+  const referralUrl =
+    user?.referralCode && typeof window !== 'undefined'
+      ? `${window.location.origin}/?ref=${user.referralCode}`
+      : '';
+
+  const handleCopyReferral = async () => {
+    if (!referralUrl) return;
+    await navigator.clipboard.writeText(referralUrl).catch(() => {});
+    setRefCopied(true);
+    setTimeout(() => setRefCopied(false), 2000);
+  };
+
+  const handleDownloadResultCard = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 560;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#faf8f5';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = '#e6e0d8';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+    ctx.fillStyle = '#d95d39';
+    ctx.beginPath();
+    ctx.arc(76, 84, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#1d1b18';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillText('Test SWK - ผลการซ้อมพรีเซนต์', 100, 94);
+
+    ctx.fillStyle = '#6b655e';
+    ctx.font = '24px sans-serif';
+    ctx.fillText((deck.name || 'Presentation').slice(0, 48), 66, 150);
+
+    const scoreText = `${avgWpm} คำ/นาที`;
+    ctx.fillStyle = '#1d1b18';
+    ctx.font = 'bold 84px sans-serif';
+    ctx.fillText(scoreText, 66, 275);
+
+    ctx.fillStyle = '#6b655e';
+    ctx.font = '24px sans-serif';
+    ctx.fillText(
+      `เวลารวม ${formatTime(totalTime)}   |   ความเร็ว ${avgWpm} คำ/นาที   |   สบตากล้อง ${
+        avgEyeContact != null ? `${avgEyeContact}%` : '-'
+      }`,
+      66,
+      360,
+    );
+
+    if (user?.referralCode) {
+      ctx.fillStyle = '#d95d39';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillText(`ลองซ้อมฟรีด้วยรหัสชวนเพื่อน: ${user.referralCode}`, 66, 460);
+    }
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${deck.name || 'presentation'}-result-card.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'image/png');
+  };
 
   // ฟังก์ชันเล่นเสียงของสไลด์หน้านั้น
   const playSlide = (idx) => {
@@ -210,7 +411,180 @@ export default function SummaryStep({
     setEditingIndex(null);
   };
 
-  const hasAnyAudio = rows.some((x) => x.r?.audioUrl);
+  const audioUrls = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (let i = 0; i < deck.slides.length; i++) {
+      const url = results[i]?.audioUrl;
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        list.push(url);
+      }
+    }
+    for (const q of qaResults) {
+      if (q?.audioUrl && !seen.has(q.audioUrl)) {
+        seen.add(q.audioUrl);
+        list.push(q.audioUrl);
+      }
+    }
+    return list;
+  }, [deck.slides, results, qaResults]);
+
+  const hasAnyAudio = audioUrls.length > 0;
+
+  const videoItems = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (let i = 0; i < deck.slides.length; i++) {
+      const url = results[i]?.videoUrl;
+      if (url && !seen.has(url)) {
+        seen.add(url);
+        list.push({
+          slideNumber: i + 1,
+          videoUrl: url,
+          videoExt: results[i]?.videoExt || 'webm',
+        });
+      }
+    }
+    for (let idx = 0; idx < qaResults.length; idx++) {
+      const q = qaResults[idx];
+      if (q?.videoUrl && !seen.has(q.videoUrl)) {
+        seen.add(q.videoUrl);
+        list.push({
+          qaNumber: idx + 1,
+          videoUrl: q.videoUrl,
+          videoExt: q.videoExt || 'webm',
+        });
+      }
+    }
+    return list;
+  }, [deck.slides, results, qaResults]);
+
+  const audioKey = audioUrls.join('|');
+  const videoKey = videoItems.map((v) => v.videoUrl).join('|');
+
+  const { mergedTimelineEvents, mergedDuration } = useMemo(() => {
+    const combined = [];
+    let offset = 0;
+    const seenUrls = new Set();
+    for (let i = 0; i < deck.slides.length; i++) {
+      const r = results[i];
+      if (!r) continue;
+      const mediaKey = r.videoUrl || r.audioUrl;
+      if (mediaKey && seenUrls.has(mediaKey)) continue;
+      if (mediaKey) seenUrls.add(mediaKey);
+      if (Array.isArray(r.timelineEvents) && r.timelineEvents.length > 0) {
+        for (const ev of r.timelineEvents) {
+          combined.push({ ...ev, t: Number((offset + (ev.t || 0)).toFixed(1)) });
+        }
+      }
+      offset += r.duration || 0;
+    }
+    for (let idx = 0; idx < qaResults.length; idx++) {
+      const q = qaResults[idx];
+      if (!q) continue;
+      const mediaKey = q.videoUrl || q.audioUrl;
+      if (mediaKey && seenUrls.has(mediaKey)) continue;
+      if (mediaKey) seenUrls.add(mediaKey);
+      if (Array.isArray(q.timelineEvents) && q.timelineEvents.length > 0) {
+        for (const ev of q.timelineEvents) {
+          combined.push({ ...ev, t: Number((offset + (ev.t || 0)).toFixed(1)) });
+        }
+      } else if (q.duration > 0) {
+        combined.push({
+          t: Number(offset.toFixed(1)),
+          type: 'qa',
+          label: `เริ่มตอบ Q&A ข้อ ${idx + 1}`,
+        });
+      }
+      offset += q.duration || 0;
+    }
+    return { mergedTimelineEvents: combined, mergedDuration: offset };
+  }, [deck.slides, results, qaResults]);
+
+  const hasAnyVideo = videoItems.length > 0;
+  const [mergedAudio, setMergedAudio] = useState(null);
+  const [audioMerging, setAudioMerging] = useState(false);
+  const [audioMergeError, setAudioMergeError] = useState(null);
+
+  const [mergedVideo, setMergedVideo] = useState(null);
+  const [videoMerging, setVideoMerging] = useState(false);
+  const [videoMergeProgress, setVideoMergeProgress] = useState(null);
+  const [videoMergeError, setVideoMergeError] = useState(null);
+  const [showMergedVideo, setShowMergedVideo] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl = null;
+    if (audioUrls.length === 0) {
+      setMergedAudio(null);
+      return undefined;
+    }
+
+    setAudioMerging(true);
+    setAudioMergeError(null);
+    mergeAudioTracks(audioUrls)
+      .then((res) => {
+        if (!active) {
+          if (res?.url) URL.revokeObjectURL(res.url);
+          return;
+        }
+        createdUrl = res?.url || null;
+        setMergedAudio(res);
+      })
+      .catch((err) => {
+        if (active) setAudioMergeError(err.message || 'รวมไฟล์เสียงไม่สำเร็จ');
+      })
+      .finally(() => {
+        if (active) setAudioMerging(false);
+      });
+
+    return () => {
+      active = false;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioKey]);
+
+  useEffect(() => {
+    if (videoItems.length === 1) {
+      setMergedVideo({
+        url: videoItems[0].videoUrl,
+        ext: videoItems[0].videoExt || 'webm',
+        isDirect: true,
+      });
+    } else {
+      setMergedVideo((prev) => {
+        if (prev?.url && !prev.isDirect) URL.revokeObjectURL(prev.url);
+        return null;
+      });
+    }
+    setVideoMergeError(null);
+    setVideoMergeProgress(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoKey]);
+
+  const handleMergeVideo = async () => {
+    if (videoItems.length === 0 || videoMerging) return;
+    setVideoMerging(true);
+    setVideoMergeError(null);
+    setVideoMergeProgress({ stage: 'loading', current: 1, total: videoItems.length, pct: 0 });
+    try {
+      const res = await mergeVideoTracks(videoItems, (prog) => {
+        setVideoMergeProgress(prog);
+      });
+      setMergedVideo((prev) => {
+        if (prev?.url && !prev.isDirect) URL.revokeObjectURL(prev.url);
+        return res;
+      });
+      setShowMergedVideo(true);
+    } catch (err) {
+      setVideoMergeError(err.message || 'รวมวิดีโอไม่สำเร็จ');
+    } finally {
+      setVideoMerging(false);
+      setVideoMergeProgress(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
@@ -220,92 +594,99 @@ export default function SummaryStep({
         <p className="mt-1 text-sm text-muted">{deck.name}</p>
       </div>
 
-      {/* แถบควบคุมการฟังเสียงทั้งหมดแบบต่อเนื่อง พร้อมปรับลด-เพิ่มเสียง */}
-      {hasAnyAudio && (
-        <div className="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-xl border border-line bg-white p-4 shadow-xs">
-          {/* ฝั่งซ้าย: ปุ่มเริ่ม/หยุดเล่นต่อเนื่อง + สถานะ */}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={handlePlayAll}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition cursor-pointer ${
-                isPlayAll
-                  ? 'bg-accent text-white shadow-xs hover:bg-accent/90'
-                  : 'bg-ink text-paper hover:bg-ink/85'
-              }`}
-            >
-              {isPlayAll ? (
-                <>
-                  <span className="size-2 rounded-[1px] bg-white animate-pulse" />
-                  <span>หยุดเล่นต่อเนื่อง</span>
-                </>
-              ) : (
-                <>
-                  <svg viewBox="0 0 16 16" className="size-4" fill="currentColor">
-                    <path d="M4.5 3.5v9l8-4.5-8-4.5z" />
-                  </svg>
-                  <span>ฟังทั้งหมดแบบต่อกัน</span>
-                </>
-              )}
-            </button>
+      {/* การ์ดไฟล์รวม (Default สำหรับดาวน์โหลดและแชร์) */}
+      {(hasAnyAudio || hasAnyVideo) && (
+        <div className="mt-6 rounded-xl border border-line bg-white p-5 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-medium text-ink">ไฟล์สรุปรวมทุกสไลด์ (พร้อมแชร์และดาวน์โหลด)</h2>
+              <p className="mt-0.5 text-xs text-muted">
+                รวมคลิปจากการซ้อมทั้งหมดไว้ในไฟล์เดียว หรือเลื่อนลงด้านล่างเพื่อดูและโหลดแยกทีละสไลด์ได้
+              </p>
+            </div>
+          </div>
 
-            {playingIndex !== null && (
-              <span className="flex items-center gap-1.5 text-xs font-mono text-muted">
-                <span className="size-1.5 rounded-full bg-accent animate-ping" />
-                กำลังเล่นหน้า <span className="font-semibold text-ink">{playingIndex + 1}</span> / {deck.slides.length}
-              </span>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
+            หมายเหตุ: ไฟล์เสียงและวิดีโอจะเก็บไว้ในหน้านี้ชั่วคราวเท่านั้น ไม่ได้บันทึกลงในประวัติย้อนหลัง หากปิดหน้านี้หรือเริ่มซ้อมใหม่ไฟล์จะหาย กรุณาดาวน์โหลดเก็บไว้ก่อนออก
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {hasAnyAudio && (
+              <>
+                {audioMerging ? (
+                  <span className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs text-muted">
+                    กำลังรวมไฟล์เสียง...
+                  </span>
+                ) : mergedAudio?.url ? (
+                  <a
+                    href={mergedAudio.url}
+                    download={`${deck.name || 'presentation'}-audio-all.wav`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-2 text-xs font-medium text-paper transition hover:bg-ink/85"
+                  >
+                    ดาวน์โหลดเสียงรวม (.wav)
+                  </a>
+                ) : null}
+              </>
+            )}
+
+            {hasAnyVideo && (
+              <>
+                {mergedVideo?.url ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowMergedVideo((v) => !v)}
+                      className="rounded-lg border border-line bg-white px-3.5 py-2 text-xs font-medium text-ink transition hover:border-faint cursor-pointer"
+                    >
+                      {showMergedVideo ? 'ซ่อนวิดีโอรวม' : 'ดูวิดีโอรวม'}
+                    </button>
+                    <a
+                      href={mergedVideo.url}
+                      download={`${deck.name || 'presentation'}-video-all.${mergedVideo.ext || 'webm'}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-white transition hover:bg-accent/90"
+                    >
+                      ดาวน์โหลดวิดีโอรวม (.{mergedVideo.ext || 'webm'})
+                    </a>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleMergeVideo}
+                    disabled={videoMerging}
+                    className="rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-white transition hover:bg-accent/90 disabled:opacity-60 cursor-pointer"
+                  >
+                    {videoMerging && videoMergeProgress
+                      ? videoMergeProgress.stage === 'encoding'
+                        ? `กำลังรวมวิดีโอ ${videoMergeProgress.pct}%...`
+                        : `กำลังเตรียมคลิป (${videoMergeProgress.current}/${videoMergeProgress.total})...`
+                      : `รวมวิดีโอทั้งหมด (${videoItems.length} คลิป)`}
+                  </button>
+                )}
+              </>
             )}
           </div>
 
-          {/* ฝั่งขวา: เครื่องเล่นเสียงแบบเห็นตัวควบคุม + แถบปรับระดับเสียง (Volume Slider) */}
-          <div className="flex flex-wrap items-center gap-3">
-            <audio
-              ref={audioRef}
-              controls
-              onEnded={handleAudioEnded}
-              onVolumeChange={handleNativeVolumeChange}
-              className="h-8 max-w-[210px] sm:max-w-[240px]"
-            />
+          {audioMergeError && <p className="text-xs text-accent">{audioMergeError}</p>}
+          {videoMergeError && <p className="text-xs text-accent">{videoMergeError}</p>}
 
-            {/* แถบเลื่อนปรับลด/เพิ่มเสียง พร้อมตัวเลข % */}
-            <div className="flex items-center gap-2 rounded-lg border border-line/80 bg-paper px-3 py-1.5 text-xs">
-              <button
-                onClick={() => handleVolumeChange(volume === 0 ? 0.8 : 0)}
-                className="text-muted hover:text-ink transition cursor-pointer"
-                title={volume === 0 ? "เปิดเสียง" : "ปิดเสียง (Mute)"}
-              >
-                {volume === 0 ? (
-                  <svg viewBox="0 0 16 16" className="size-4 text-accent" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M2 2l12 12M7.5 4.5L5 6.5H2.5v3H5l2.5 2V4.5z" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : volume < 0.5 ? (
-                  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M7.5 4L4.5 6.5H2v3h2.5L7.5 12V4zM10 6.5a2.5 2.5 0 0 1 0 3" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M7.5 4L4.5 6.5H2v3h2.5L7.5 12V4zM10.5 5a4.5 4.5 0 0 1 0 6M12.5 3a7.5 7.5 0 0 1 0 10" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </button>
-
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
-                onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                className="w-16 sm:w-20 accent-ink cursor-pointer h-1.5"
-                title={`ระดับเสียง: ${Math.round(volume * 100)}%`}
-              />
-
-              <span className="w-7 font-mono text-[11px] tabular-nums text-muted text-right">
-                {Math.round(volume * 100)}%
-              </span>
+          {mergedAudio?.url && (
+            <div className="pt-1">
+              <p className="mb-1.5 text-[11px] font-medium text-muted">ฟังไฟล์เสียงรวมทั้งหมด</p>
+              <audio controls src={mergedAudio.url} className="h-9 w-full" />
             </div>
-          </div>
+          )}
+
+          {mergedVideo?.url && showMergedVideo && (
+            <TimelineReplayPlayer
+              videoUrl={mergedVideo.url}
+              duration={mergedDuration || totalTime}
+              events={mergedTimelineEvents}
+            />
+          )}
         </div>
       )}
+
+      <audio ref={audioRef} onEnded={handleAudioEnded} className="hidden" />
 
       {/* เทียบเวลาเป้าหมาย (ถ้าตั้งไว้) */}
       {(timeBudget?.presentMinutes || 0) > 0 && (() => {
@@ -359,6 +740,24 @@ export default function SummaryStep({
       )}
 
       {/* ผลวิเคราะห์ความตรงสไลด์ และมุมมองคนฟัง จาก Gemini AI */}
+      {!aiLoading && !aiSummary && !aiError && done.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-ink">วิเคราะห์สรุปผลด้วย AI</p>
+            <p className="mt-0.5 text-xs text-muted">
+              ให้ AI ประเมินความตรงตามสไลด์ ความเข้าใจง่าย และแนะนำประโยคที่กระชับขึ้น
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={runAiAnalysis}
+            className="shrink-0 rounded-lg bg-ink px-4 py-2 text-xs font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
+          >
+            วิเคราะห์สรุปผลด้วย AI (-2 Tokens)
+          </button>
+        </div>
+      )}
+
       {aiLoading && (
         <div className="mt-4 rounded-xl border border-line bg-white px-5 py-5 text-sm text-muted">
           กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟัง...
@@ -373,7 +772,7 @@ export default function SummaryStep({
             onClick={runAiAnalysis}
             className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink hover:border-faint cursor-pointer"
           >
-            ลองวิเคราะห์อีกครั้ง
+            ลองวิเคราะห์อีกครั้ง (-2 Tokens)
           </button>
         </div>
       )}
@@ -386,18 +785,12 @@ export default function SummaryStep({
               <p className="text-xs text-muted">ประเมินจากการเทียบเนื้อหาสไลด์กับคำพูดทั้งหมด</p>
             </div>
             <div className="flex items-center gap-4 text-xs font-mono">
-              <span>
-                ตรงสไลด์ <strong className="text-sm text-ink">{aiSummary.alignmentScore ?? '-'}%</strong>
-              </span>
-              <span>
-                เข้าใจง่าย <strong className="text-sm text-ink">{aiSummary.clarityScore ?? '-'}%</strong>
-              </span>
               <button
                 type="button"
                 onClick={runAiAnalysis}
                 className="font-sans rounded-md border border-line px-2.5 py-1 text-muted hover:text-ink hover:border-faint cursor-pointer"
               >
-                วิเคราะห์ใหม่
+                วิเคราะห์ใหม่ (-2 Tokens)
               </button>
             </div>
           </div>
@@ -406,6 +799,22 @@ export default function SummaryStep({
             <div className="rounded-lg bg-paper p-3.5 text-sm leading-relaxed text-ink">
               <p className="text-xs font-medium text-muted mb-1">สิ่งที่คนฟังจับใจความได้</p>
               <p>{aiSummary.listenerSummary}</p>
+            </div>
+          )}
+
+          {Array.isArray(aiSummary.timelineAdvice) && aiSummary.timelineAdvice.length > 0 && (
+            <div className="rounded-lg border border-line bg-paper/60 p-3.5 space-y-2 text-xs">
+              <p className="font-medium text-ink">คำแนะนำตามช่วงเวลา (Timeline)</p>
+              <div className="space-y-1.5">
+                {aiSummary.timelineAdvice.map((item, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="shrink-0 rounded bg-ink px-1.5 py-0.5 font-mono text-[11px] text-paper">
+                      {item.timeLabel || formatTime(item.t || 0)}
+                    </span>
+                    <span className="text-muted leading-relaxed">{item.comment}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -596,9 +1005,20 @@ export default function SummaryStep({
                         )}
                       </button>
                       <audio controls src={r.audioUrl} className="h-7 w-48 sm:w-56" />
+                      <a
+                        href={r.audioUrl}
+                        download={`slide-${i + 1}-audio.webm`}
+                        className="rounded-md border border-line bg-paper px-2.5 py-1.5 font-medium text-ink hover:border-faint"
+                      >
+                        โหลดเสียง
+                      </a>
                     </>
                   ) : (
-                    <span className="text-faint italic text-[11px]">ไม่มีไฟล์เสียง</span>
+                    <span className="text-faint italic text-[11px]">
+                      {rehearsalMode === 'continuous'
+                        ? 'รวมอยู่ในคลิปซ้อมใหญ่ต่อเนื่องด้านบน'
+                        : 'ไม่มีไฟล์เสียง'}
+                    </span>
                   )}
                   {r?.videoUrl && (
                     <>
@@ -646,10 +1066,13 @@ export default function SummaryStep({
                 </div>
               </div>
 
-              {r?.videoUrl && openVideoIndex === i && (
-                <div className="mt-3 overflow-hidden rounded-lg border border-line bg-black">
-                  <video controls src={r.videoUrl} className="max-h-72 w-full" />
-                </div>
+              {(r?.videoUrl || r?.audioUrl) && openVideoIndex === i && (
+                <TimelineReplayPlayer
+                  videoUrl={r.videoUrl}
+                  audioUrl={r.audioUrl}
+                  duration={r.duration}
+                  events={r.timelineEvents || []}
+                />
               )}
             </div>
           );
@@ -659,12 +1082,27 @@ export default function SummaryStep({
       {/* ผลช่วงถาม-ตอบ */}
       {qaResults.length > 0 && (
         <div className="mt-8 rounded-xl border border-line bg-white p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-medium text-ink">ผลช่วงถาม-ตอบ</h3>
-            <p className="mt-0.5 text-xs text-muted">
-              คำถามที่ฝึกตอบ {qaResults.length} ข้อ
-            </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-ink">ผลช่วงถาม-ตอบ</h3>
+              <p className="mt-0.5 text-xs text-muted">
+                คำถามที่ฝึกตอบ {qaResults.length} ข้อ
+              </p>
+            </div>
+            {unevaluatedQaCount > 0 && (
+              <button
+                type="button"
+                onClick={handleEvaluateAllQa}
+                disabled={qaEvaluating}
+                className="rounded-lg bg-ink px-3.5 py-2 text-xs font-medium text-paper transition hover:bg-ink/85 disabled:opacity-50 cursor-pointer"
+              >
+                {qaEvaluating
+                  ? 'กำลังตรวจคำตอบ Q&A...'
+                  : `ให้ AI ตรวจคำตอบ Q&A (-1 Token/ข้อ • ${unevaluatedQaCount} ข้อ)`}
+              </button>
+            )}
           </div>
+          {qaEvalError && <p className="text-xs text-accent">{qaEvalError}</p>}
 
           <div className="space-y-3">
             {qaResults.map((q, idx) => (
@@ -680,20 +1118,23 @@ export default function SummaryStep({
                       {idx + 1}. {q.question}
                     </p>
                   </div>
-                  {q.score != null && (
-                    <span className="rounded-md bg-ink px-2 py-0.5 font-mono text-xs text-paper">
-                      {q.score}/10
+                  {q.directness && (
+                    <span className="rounded-md bg-ink px-2 py-0.5 text-xs text-paper">
+                      {q.directness}
                     </span>
                   )}
                 </div>
                 {(q.answerTranscript || q.answer) && (
                   <p className="text-xs text-muted">คำตอบของคุณ: "{q.answerTranscript || q.answer}"</p>
                 )}
-                {q.directness && (
-                  <p className="text-xs font-medium text-ink">{q.directness}</p>
-                )}
                 {q.feedback && (
                   <p className="text-xs text-muted">{q.feedback}</p>
+                )}
+                {q.timelineNote && (
+                  <p className="text-xs text-ink/85">
+                    <span className="font-medium">จังหวะระหว่างตอบ: </span>
+                    {q.timelineNote}
+                  </p>
                 )}
                 {q.betterAnswer && (
                   <p className="text-xs text-ink/90">
@@ -701,22 +1142,119 @@ export default function SummaryStep({
                     {q.betterAnswer}
                   </p>
                 )}
+                {(q.audioUrl || q.videoUrl) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2.5 text-xs">
+                    {q.audioUrl && (
+                      <>
+                        <audio controls src={q.audioUrl} className="h-7 w-48 sm:w-56" />
+                        <a
+                          href={q.audioUrl}
+                          download={`qa-${idx + 1}-audio.webm`}
+                          className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink hover:border-faint"
+                        >
+                          โหลดเสียง
+                        </a>
+                      </>
+                    )}
+                    {q.videoUrl && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setOpenQaVideoIndex(openQaVideoIndex === idx ? null : idx)}
+                          className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink hover:border-faint cursor-pointer"
+                        >
+                          {openQaVideoIndex === idx ? 'ซ่อนวิดีโอ' : 'ดูวิดีโอ'}
+                        </button>
+                        <a
+                          href={q.videoUrl}
+                          download={`qa-${idx + 1}.${q.videoExt || 'webm'}`}
+                          className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink hover:border-faint"
+                        >
+                          ดาวน์โหลดคลิป
+                        </a>
+                      </>
+                    )}
+                  </div>
+                )}
+                {(q.videoUrl || q.audioUrl) && openQaVideoIndex === idx && (
+                  <TimelineReplayPlayer
+                    videoUrl={q.videoUrl}
+                    audioUrl={q.audioUrl}
+                    duration={q.duration}
+                    events={q.timelineEvents || []}
+                  />
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
+      {/* แจ้งเตือนโบนัสชวนเพื่อน และการ์ดแชร์ผล */}
+      {referralAwarded && (
+        <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800">
+          ยินดีด้วย! คุณและเพื่อนที่ชวนได้รับโบนัสซ้อมครั้งแรก +10 Tokens เรียบร้อยแล้ว
+        </div>
+      )}
+
+      <div className="mt-8 rounded-xl border border-line bg-white p-5 space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-ink">แชร์ผลซ้อมและชวนเพื่อน</h3>
+          <p className="mt-0.5 text-xs text-muted">
+            ดาวน์โหลดการ์ดคะแนนไว้โพสต์อวดผลงาน หรือส่งลิงก์ให้เพื่อนมาซ้อมเพื่อรับ +10 Tokens ทั้งคู่
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleDownloadResultCard}
+            className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink cursor-pointer"
+          >
+            ดาวน์โหลดการ์ดสรุป (.png)
+          </button>
+          {referralUrl && (
+            <button
+              type="button"
+              onClick={handleCopyReferral}
+              className="rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-white transition hover:bg-accent/90 cursor-pointer"
+            >
+              {refCopied ? 'คัดลอกลิงก์ชวนเพื่อนแล้ว' : 'คัดลอกลิงก์ชวนเพื่อน (+10 Tokens)'}
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* ปุ่มด้านล่าง */}
-      <div className="mt-8 flex gap-2">
+      <div className="mt-6 flex gap-2">
         <button
-          onClick={onBack}
+          onClick={async () => {
+            const ok = await askConfirm({
+              key: 'leave-summary',
+              title: 'กลับไปหน้าซ้อม?',
+              message: 'หากกลับไปอัดใหม่บางหน้า คลิปเสียงและวิดีโอรวมจะเปลี่ยนไป ต้องการกลับไปหน้าซ้อมหรือไม่?',
+              confirmText: 'กลับไปหน้าซ้อม',
+            });
+            if (ok) onBack();
+          }}
           className="rounded-lg border border-line px-5 py-2.5 text-sm transition hover:border-faint cursor-pointer"
         >
           กลับไปหน้าซ้อม
         </button>
         <button
-          onClick={onRestart}
+          onClick={async () => {
+            const ok = await askConfirm({
+              key: 'leave-summary-restart',
+              allowDontShowAgain: false,
+              danger: true,
+              title: 'ออกจากหน้าสรุปผลและซ้อมใหม่?',
+              message:
+                hasAnyAudio || hasAnyVideo
+                  ? 'ไฟล์เสียงและวิดีโอในรอบนี้ไม่ได้ถูกบันทึกในประวัติ หากยังไม่ได้ดาวน์โหลดไฟล์จะหาย ต้องการซ้อมใหม่ทั้งหมดหรือไม่?'
+                  : 'ต้องการเริ่มซ้อมใหม่ทั้งหมดตั้งแต่ต้นหรือไม่?',
+              confirmText: 'ซ้อมใหม่ทั้งหมด',
+            });
+            if (ok) onRestart();
+          }}
           className="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
         >
           ซ้อมใหม่ทั้งหมด

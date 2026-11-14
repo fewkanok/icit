@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import {
   ConnectedSocket,
@@ -7,6 +8,18 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+
+const ALLOWED_ACTIONS = new Set(['prev', 'next', 'start', 'stop', 'finish']);
+
+function isAllowedRemoteOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (process.env.NODE_ENV !== 'production') return true;
+  const configured = process.env.FRONTEND_URL?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (configured?.includes(origin)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin);
+}
 
 function getLanIp(): string | null {
   const nets = networkInterfaces();
@@ -24,21 +37,31 @@ function makeRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[randomInt(chars.length)];
   }
   return code;
 }
 
 @WebSocketGateway({
-  maxHttpBufferSize: 10 * 1024 * 1024,
+  maxHttpBufferSize: 2 * 1024 * 1024,
   cors: {
-    origin: true,
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      cb(null, isAllowedRemoteOrigin(origin));
+    },
     credentials: true,
   },
 })
 export class RemoteGateway {
   @WebSocketServer()
   server!: Server;
+
+  private getJoinedRoom(client: Socket, rawCode?: string): string | null {
+    const code = rawCode?.trim().toUpperCase();
+    if (!code || !client.rooms.has(code)) {
+      return null;
+    }
+    return code;
+  }
 
   @SubscribeMessage('create_room')
   handleCreateRoom(@ConnectedSocket() client: Socket) {
@@ -67,22 +90,26 @@ export class RemoteGateway {
   @SubscribeMessage('remote_command')
   handleRemoteCommand(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code: string; action: 'prev' | 'next' | 'start' | 'stop' | 'finish' },
+    @MessageBody() body: { code?: string; action?: string },
   ) {
-    if (!body?.code) return;
-    client.to(body.code).emit('stage_command', { action: body.action });
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code || !body?.action || !ALLOWED_ACTIONS.has(body.action)) return;
+    client.to(code).emit('stage_command', { action: body.action });
   }
 
   @SubscribeMessage('remote_laser')
   handleRemoteLaser(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code: string; x: number; y: number; active: boolean },
+    @MessageBody() body: { code?: string; x?: number; y?: number; active?: boolean },
   ) {
-    if (!body?.code) return;
-    client.to(body.code).emit('stage_laser', {
-      x: body.x,
-      y: body.y,
-      active: body.active,
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code) return;
+    const x = typeof body?.x === 'number' && Number.isFinite(body.x) ? Math.max(0, Math.min(1, body.x)) : 0.5;
+    const y = typeof body?.y === 'number' && Number.isFinite(body.y) ? Math.max(0, Math.min(1, body.y)) : 0.5;
+    client.to(code).emit('stage_laser', {
+      x,
+      y,
+      active: Boolean(body?.active),
     });
   }
 
@@ -90,40 +117,44 @@ export class RemoteGateway {
   handleRemoteTranscript(
     @ConnectedSocket() client: Socket,
     @MessageBody()
-    body: { code: string; finalText: string; interim: string; listening: boolean },
+    body: { code?: string; finalText?: string; interim?: string; listening?: boolean },
   ) {
-    if (!body?.code) return;
-    client.to(body.code).emit('stage_transcript', {
-      finalText: body.finalText,
-      interim: body.interim,
-      listening: body.listening,
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code) return;
+    client.to(code).emit('stage_transcript', {
+      finalText: typeof body?.finalText === 'string' ? body.finalText.slice(0, 10000) : '',
+      interim: typeof body?.interim === 'string' ? body.interim.slice(0, 1000) : '',
+      listening: Boolean(body?.listening),
     });
   }
 
   @SubscribeMessage('stage_state')
   handleStageState(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code: string; [key: string]: unknown },
+    @MessageBody() body: { code?: string; [key: string]: unknown },
   ) {
-    if (!body?.code) return;
-    client.to(body.code).emit('remote_state', body);
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code) return;
+    client.to(code).emit('remote_state', body);
   }
 
   @SubscribeMessage('stage_speak')
   handleStageSpeak(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code: string; text: string },
+    @MessageBody() body: { code?: string; text?: string },
   ) {
-    if (!body?.code || !body?.text) return;
-    client.to(body.code).emit('remote_speak', { text: body.text });
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code || typeof body?.text !== 'string' || !body.text.trim()) return;
+    client.to(code).emit('remote_speak', { text: body.text.slice(0, 1000) });
   }
 
   @SubscribeMessage('stage_vibrate')
   handleStageVibrate(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code: string; pattern?: number | number[] },
+    @MessageBody() body: { code?: string; pattern?: number | number[] },
   ) {
-    if (!body?.code) return;
-    client.to(body.code).emit('remote_vibrate', { pattern: body.pattern ?? 200 });
+    const code = this.getJoinedRoom(client, body?.code);
+    if (!code) return;
+    client.to(code).emit('remote_vibrate', { pattern: body?.pattern ?? 200 });
   }
 }

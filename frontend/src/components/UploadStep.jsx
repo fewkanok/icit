@@ -21,6 +21,8 @@ export default function UploadStep({
   onInterruptToggle,
   useGeminiTts,
   onGeminiTtsToggle,
+  cameraEnabled = true,
+  onCameraToggle,
   onBackToMode,
   onDeckChange,
   onStart,
@@ -202,6 +204,8 @@ export default function UploadStep({
           onInterruptToggle={onInterruptToggle}
           useGeminiTts={useGeminiTts}
           onGeminiTtsToggle={onGeminiTtsToggle}
+          cameraEnabled={cameraEnabled}
+          onCameraToggle={onCameraToggle}
           confirmLabel="บันทึก"
           onConfirm={() => setSetupOpen(false)}
           onClose={() => setSetupOpen(false)}

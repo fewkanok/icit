@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import SlideViewer from './SlideViewer';
 import FloatingCamera from './FloatingCamera';
 import InterruptModal from './InterruptModal';
+import { askConfirm } from './ConfirmModal';
 import { createSocket } from '../lib/socket';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { useAudioRecorder } from '../lib/useAudioRecorder';
@@ -105,6 +106,8 @@ export default function RehearsalStep({
   interruptEnabled,
   onInterruptToggle,
   useGeminiTts = false,
+  cameraEnabled = true,
+  onCameraToggle,
   interruptResults,
   onInterruptResult,
   onBack,
@@ -120,6 +123,7 @@ export default function RehearsalStep({
   const [stageMode, setStageMode] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [roomCode, setRoomCode] = useState(null);
+  const [roomError, setRoomError] = useState(null);
   const [lanIp, setLanIp] = useState(null);
   const [remoteConnected, setRemoteConnected] = useState(false);
   const [laser, setLaser] = useState(null);
@@ -158,12 +162,24 @@ export default function RehearsalStep({
 
   // 3. ตัวตรวจจับสายตา & บุคลิกภาพ ด้วย Google MediaPipe Vision (Client-side 100%)
   const vision = useFaceLandmarker();
+  const autoCameraStarted = useRef(false);
+
+  useEffect(() => {
+    if (cameraEnabled && !autoCameraStarted.current && !vision.cameraActive && !vision.modelLoading) {
+      autoCameraStarted.current = true;
+      void vision.startCamera();
+    }
+  }, [cameraEnabled, vision]);
 
   // 4. ตัวอัดวิดีโอกล้องลง RAM (เมื่อเปิดกล้อง) สำหรับดูย้อนหลังและดาวน์โหลด
   const videoRecorder = useVideoRecorder();
 
   const total = deck.slides.length;
   const live = speech.listening || recorder.recording;
+  const timelineEventsRef = useRef([]);
+  const lastPacePinAtRef = useRef(-10);
+  const lastLookingDownRef = useRef(0);
+  const lastFillerCountRef = useRef(0);
   const result = results[index];
   const isLast = index === total - 1;
   const doneCount = Object.keys(results).length;
@@ -185,25 +201,81 @@ export default function RehearsalStep({
 
   actionsRef.current = { start, stop, handleContinuousNext, live, index, total, setIndex, onFinish, isContinuous };
 
+  // บันทึกหมุด Timeline ระหว่างพูด (เงียบค้าง / ก้มอ่าน / ความเร็ว / คำติดปาก)
+  useEffect(() => {
+    if (!live || !startedAt.current) return;
+    if (recorder.isDeadAir) {
+      const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
+      timelineEventsRef.current.push({ t, type: 'deadair', label: 'เงียบค้าง (> 2.5 วิ)' });
+    }
+  }, [live, recorder.isDeadAir]);
+
+  useEffect(() => {
+    if (!live || !startedAt.current) return;
+    if (vision.lookingDownCount > lastLookingDownRef.current) {
+      lastLookingDownRef.current = vision.lookingDownCount;
+      const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
+      timelineEventsRef.current.push({ t, type: 'eye', label: 'ก้มอ่าน / สายตาหลุดกล้อง' });
+    }
+  }, [live, vision.lookingDownCount]);
+
+  useEffect(() => {
+    if (!live || !startedAt.current || liveWpm <= 0) return;
+    const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
+    if (t - lastPacePinAtRef.current < 4) return;
+    if (liveWpm > 180) {
+      lastPacePinAtRef.current = t;
+      timelineEventsRef.current.push({ t, type: 'pace_fast', label: `พูดเร็ว (${liveWpm} คำ/นาที)` });
+    } else if (liveWpm < 95 && t >= 6) {
+      lastPacePinAtRef.current = t;
+      timelineEventsRef.current.push({ t, type: 'pace_slow', label: `พูดช้า (${liveWpm} คำ/นาที)` });
+    }
+  }, [live, liveWpm]);
+
+  useEffect(() => {
+    if (!live || !startedAt.current || !fullLiveText) return;
+    const { fillers } = analyze(fullLiveText, 1);
+    if (fillers.total > lastFillerCountRef.current) {
+      lastFillerCountRef.current = fillers.total;
+      const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
+      const topFiller = fillers.found[0]?.label;
+      timelineEventsRef.current.push({
+        t,
+        type: 'filler',
+        label: topFiller ? `พบคำติดปาก (${topFiller})` : 'พบคำติดปาก',
+      });
+    }
+  }, [live, fullLiveText]);
+
   // เชื่อมต่อ WebSocket เมื่อเปิดโหมดเวที
   useEffect(() => {
     if (!stageMode) {
       socketRef.current?.disconnect();
       socketRef.current = null;
       setRoomCode(null);
+      setRoomError(null);
       setRemoteConnected(false);
       setLaser(null);
       return;
     }
 
+    setRoomError(null);
     const socket = createSocket();
     socketRef.current = socket;
 
-    socket.on('connect', () => {
+    const requestRoom = () => {
+      setRoomError(null);
       socket.emit('create_room', (res) => {
         if (res?.code) setRoomCode(res.code);
         if (res?.lanIp) setLanIp(res.lanIp);
       });
+    };
+
+    socket.on('connect', requestRoom);
+    if (socket.connected) requestRoom();
+
+    socket.on('connect_error', (err) => {
+      setRoomError(err?.message || 'เชื่อมต่อเซิร์ฟเวอร์รีโมตไม่สำเร็จ กรุณาเช็กว่า Backend กำลังรันอยู่');
     });
 
     socket.on('remote_joined', () => {
@@ -308,6 +380,10 @@ export default function RehearsalStep({
     startedAt.current = now;
     segmentStartAt.current = now;
     segmentOffset.current = 0;
+    timelineEventsRef.current = [{ t: 0, type: 'slide', label: `เริ่มสไลด์ ${index + 1}` }];
+    lastPacePinAtRef.current = -10;
+    lastLookingDownRef.current = 0;
+    lastFillerCountRef.current = 0;
     setElapsed(0);
     speech.start();
     const audioStream = await recorder.start();
@@ -334,6 +410,7 @@ export default function RehearsalStep({
       videoExt: videoResult.videoExt,
       deadAir: recResult.deadAir,
       vision: visionStats,
+      timelineEvents: [...timelineEventsRef.current],
       aiCheck: null,
     });
 
@@ -372,12 +449,15 @@ export default function RehearsalStep({
         videoExt: videoResult.videoExt,
         deadAir: recResult.deadAir,
         vision: visionStats,
+        timelineEvents: [...timelineEventsRef.current],
         aiCheck: null,
       });
       setActiveInterruptSlide(index);
       return;
     }
 
+    const slideT = Number(((now - startedAt.current) / 1000).toFixed(1));
+    timelineEventsRef.current.push({ t: slideT, type: 'slide', label: `เริ่มสไลด์ ${index + 2}` });
     segmentOffset.current = fullText.length;
     segmentStartAt.current = now;
     setIndex(index + 1);
@@ -385,6 +465,13 @@ export default function RehearsalStep({
 
   async function handleCheckSlide() {
     if (!result || aiChecking) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อวิเคราะห์ความตรงสไลด์ในหน้านี้ด้วย AI',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
     setAiChecking(true);
     setAiError(null);
     try {
@@ -424,7 +511,9 @@ export default function RehearsalStep({
                     ? 'เชื่อมต่อมือถือแล้ว'
                     : roomCode
                       ? `รหัสห้อง: ${roomCode}`
-                      : 'กำลังสร้างห้อง...'}
+                      : roomError
+                        ? 'เชื่อมต่อไม่สำเร็จ'
+                        : 'กำลังสร้างห้อง...'}
                 </p>
               </div>
               <span
@@ -433,6 +522,8 @@ export default function RehearsalStep({
                 }`}
               />
             </div>
+
+            {roomError && <p className="text-xs text-accent text-left">{roomError}</p>}
 
             {roomCode && (() => {
               const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -527,7 +618,15 @@ export default function RehearsalStep({
           )}
           <button
             type="button"
-            onClick={vision.cameraActive ? vision.stopCamera : vision.startCamera}
+            onClick={() => {
+              if (vision.cameraActive) {
+                vision.stopCamera();
+                if (cameraEnabled) onCameraToggle?.();
+              } else {
+                void vision.startCamera();
+                if (!cameraEnabled) onCameraToggle?.();
+              }
+            }}
             disabled={vision.modelLoading || live}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition disabled:opacity-40 cursor-pointer ${
               vision.cameraActive
@@ -585,7 +684,7 @@ export default function RehearsalStep({
                 : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
             }`}
           >
-            สุ่มถามระหว่างซ้อม: {interruptEnabled ? 'เปิด' : 'ปิด'}
+            สุ่มถามระหว่างซ้อม: {interruptEnabled ? 'เปิด' : 'ปิด'} (-1 Token/ข้อ)
           </button>
           <p className="text-sm text-muted">
             ซ้อมแล้ว <span className="font-mono tabular-nums text-ink">{doneCount}</span> จาก {total} หน้า
@@ -734,7 +833,9 @@ export default function RehearsalStep({
                   <div className="rounded-lg border border-line bg-paper p-3.5 text-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-ink">ผลตรวจหน้านี้</span>
-                      <span className="font-mono font-medium text-ink">ตรงสไลด์ {result.aiCheck.alignmentScore ?? '-'}%</span>
+                      <span className="font-mono font-medium text-ink">
+                        {result.aiCheck.coverage || 'สรุปจาก AI'}
+                      </span>
                     </div>
                     {result.aiCheck.summary && (
                       <p className="text-muted leading-relaxed">{result.aiCheck.summary}</p>
@@ -757,7 +858,7 @@ export default function RehearsalStep({
                     disabled={aiChecking}
                     className="w-full rounded-lg border border-line bg-paper py-2 text-xs font-medium text-ink transition hover:border-faint disabled:opacity-50 cursor-pointer"
                   >
-                    {aiChecking ? 'กำลังวิเคราะห์หน้านี้...' : 'ให้ AI เช็กหน้านี้'}
+                    {aiChecking ? 'กำลังวิเคราะห์หน้านี้...' : 'ให้ AI เช็กหน้านี้ (-1 Token)'}
                   </button>
                 )}
 
@@ -780,10 +881,10 @@ export default function RehearsalStep({
                     หยุด
                   </button>
                   <button
-                    onClick={() => (isLast ? stop({ goFinish: true }) : handleContinuousNext())}
+                    onClick={() => (isLast ? stop() : handleContinuousNext())}
                     className="rounded-lg bg-accent py-3 text-sm font-medium text-white transition hover:bg-accent/90 cursor-pointer"
                   >
-                    {isLast ? 'จบและไปถาม-ตอบ' : 'หน้าถัดไป'}
+                    {isLast ? 'จบการซ้อม' : 'หน้าถัดไป'}
                   </button>
                 </div>
               ) : (
@@ -796,21 +897,53 @@ export default function RehearsalStep({
                 </button>
               )
             ) : result ? (
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={start}
-                  disabled={!speech.supported}
-                  className="rounded-lg border border-line py-3 text-sm transition hover:border-faint disabled:opacity-40 cursor-pointer"
-                >
-                  อัดใหม่
-                </button>
-                <button
-                  onClick={() => (isLast ? onFinish() : setIndex(index + 1))}
-                  className="rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
-                >
-                  {isLast ? 'ไปช่วงถาม-ตอบ' : 'หน้าถัดไป'}
-                </button>
-              </div>
+              isLast ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    onClick={start}
+                    disabled={!speech.supported}
+                    className="rounded-lg border border-line py-3 text-sm transition hover:border-faint disabled:opacity-40 cursor-pointer"
+                  >
+                    อัดใหม่
+                  </button>
+                  <button
+                    onClick={() => onFinish(true)}
+                    className="rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
+                  >
+                    ดูสรุปผล (ฟรี)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const ok = await askConfirm({
+                        key: 'token-spend',
+                        title: 'ยืนยันการใช้ 1 Token',
+                        message: 'ระบบจะใช้ 1 Token เพื่อสร้างชุดคำถามช่วงถาม-ตอบ (Q&A)',
+                        confirmText: 'ใช้ 1 Token',
+                      });
+                      if (ok) onFinish(false);
+                    }}
+                    className="rounded-lg border border-accent bg-accent/10 py-3 text-sm font-medium text-accent transition hover:bg-accent hover:text-white cursor-pointer"
+                  >
+                    ไปช่วงถาม-ตอบ (-1 Token)
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={start}
+                    disabled={!speech.supported}
+                    className="rounded-lg border border-line py-3 text-sm transition hover:border-faint disabled:opacity-40 cursor-pointer"
+                  >
+                    อัดใหม่
+                  </button>
+                  <button
+                    onClick={() => setIndex(index + 1)}
+                    className="rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
+                  >
+                    หน้าถัดไป
+                  </button>
+                </div>
+              )
             ) : (
               <button
                 onClick={start}
