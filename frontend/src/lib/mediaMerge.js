@@ -280,6 +280,29 @@ async function renderSlidePngBytes(slide, qaQuestion = '', layout = DEFAULT_LAYO
     });
   }
 
+  // กรอบรอบกล้องผู้พูด (เงา + ขอบขาวให้แยกชัดแม้ซ้อนบนสไลด์)
+  const camW = toEvenPx(cBox.w * W, 120);
+  const camH = toEvenPx(cBox.h * H, 90);
+  const camX = Math.max(0, Math.min(W - camW, Math.round(cBox.x * W)));
+  const camY = Math.max(0, Math.min(H - camH, Math.round(cBox.y * H)));
+  const framePad = 4;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(24, 24, 27, 0.16)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = '#d4d4d8';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
+  ctx.stroke();
+
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   const buf = await blob.arrayBuffer();
   return new Uint8Array(buf);
