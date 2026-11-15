@@ -17,24 +17,24 @@ export default function Header({
   const current = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <header className="border-b border-line">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6">
+    <header className="border-b border-line bg-white/70 backdrop-blur-xs">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-6">
         <div className="flex items-center gap-2">
           <span className="size-2.5 rounded-full bg-accent" />
           <span className="font-semibold tracking-tight">Test SWK</span>
         </div>
 
-        <ol className="hidden items-center gap-1 text-sm sm:flex">
+        <ol className="hidden items-center gap-1.5 text-sm sm:flex">
           {STEPS.map((s, i) => (
-            <li key={s.key} className="flex items-center gap-1">
-              {i > 0 && <span className="mx-1 h-px w-5 bg-line" />}
+            <li key={s.key} className="flex items-center gap-1.5">
+              {i > 0 && <span className="mx-1 h-px w-4 bg-line" />}
               <span
                 className={
                   i === current
-                    ? 'font-medium text-ink'
+                    ? 'rounded-full bg-ink/5 px-2.5 py-1 font-semibold text-ink'
                     : i < current
-                      ? 'text-muted'
-                      : 'text-faint'
+                      ? 'px-1.5 py-1 text-muted'
+                      : 'px-1.5 py-1 text-faint'
                 }
               >
                 <span className="mr-1.5 font-mono text-xs">{i + 1}</span>

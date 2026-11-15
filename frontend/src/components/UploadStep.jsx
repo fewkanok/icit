@@ -159,9 +159,9 @@ export default function UploadStep({
           <button
             onClick={onStart}
             disabled={!deck || loading}
-            className="w-full rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint"
+            className="w-full rounded-xl bg-accent py-3.5 text-sm font-semibold text-white shadow-xs transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint cursor-pointer"
           >
-            เริ่มซ้อม
+            เริ่มซ้อมพูด
           </button>
           {!deck && !loading && (
             <button

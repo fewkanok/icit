@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchWallet, mockTopupTokens } from '../lib/api';
+import Pagination from './Pagination';
 
 const PACKAGES = [
   { id: 'starter', name: 'Starter Pack', tokens: 50, price: '49 บาท (จำลอง)' },
@@ -12,6 +13,7 @@ export default function WalletModal({ open, onClose, onBalanceChange }) {
   const [buyingId, setBuyingId] = useState(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
+  const [txPage, setTxPage] = useState(1);
 
   useEffect(() => {
     if (!open) return;
@@ -152,28 +154,36 @@ export default function WalletModal({ open, onClose, onBalanceChange }) {
               {!wallet?.transactions?.length ? (
                 <p className="text-xs text-muted">ยังไม่มีรายการ</p>
               ) : (
-                <div className="max-h-44 overflow-y-auto divide-y divide-line rounded-xl border border-line">
-                  {wallet.transactions.map((tx) => (
-                    <div
-                      key={tx.id}
-                      className="flex items-center justify-between gap-3 px-3.5 py-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-ink">{tx.description || tx.type}</p>
-                        <p className="text-[10px] text-muted">
-                          {new Date(tx.createdAt).toLocaleString('th-TH')}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 font-mono font-medium ${
-                          tx.amount >= 0 ? 'text-emerald-700' : 'text-accent'
-                        }`}
+                <>
+                  <div className="divide-y divide-line rounded-xl border border-line">
+                    {wallet.transactions.slice((txPage - 1) * 5, txPage * 5).map((tx) => (
+                      <div
+                        key={tx.id}
+                        className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs"
                       >
-                        {tx.amount >= 0 ? `+${tx.amount}` : tx.amount}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-ink">{tx.description || tx.type}</p>
+                          <p className="text-[10px] text-muted">
+                            {new Date(tx.createdAt).toLocaleString('th-TH')}
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 font-mono font-medium ${
+                            tx.amount >= 0 ? 'text-emerald-700' : 'text-accent'
+                          }`}
+                        >
+                          {tx.amount >= 0 ? `+${tx.amount}` : tx.amount}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <Pagination
+                    page={txPage}
+                    totalItems={wallet.transactions.length}
+                    pageSize={5}
+                    onPageChange={setTxPage}
+                  />
+                </>
               )}
             </div>
           </>

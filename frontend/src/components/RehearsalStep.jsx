@@ -10,10 +10,22 @@ import { useAudioRecorder } from '../lib/useAudioRecorder';
 import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import { useVideoRecorder } from '../lib/useVideoRecorder';
 import { checkSlideWithAi } from '../lib/api';
-import { analyze, countFillers, countWords, formatTime, pace, PACE_PILL, PACE_TEXT } from '../lib/metrics';
+import {
+  analyze,
+  countFillers,
+  countWords,
+  formatTime,
+  LIVE_PACE_FAST,
+  LIVE_PACE_SLOW,
+  pace,
+  PACE_PILL,
+  PACE_TEXT,
+  PACE_WARMUP_SEC,
+  PACE_WINDOW_SEC,
+} from '../lib/metrics';
 
-const WINDOW_SEC = 10; // คำนวณความเร็วจากช่วง 10 วินาทีล่าสุด
-const WARMUP_SEC = 5; // ช่วงแรกเวลาน้อยเกินไป ตัวเลขยังไม่นิ่ง
+const WINDOW_SEC = PACE_WINDOW_SEC;
+const WARMUP_SEC = PACE_WARMUP_SEC;
 
 function MicIcon() {
   return (
@@ -129,6 +141,7 @@ export default function RehearsalStep({
   const [laser, setLaser] = useState(null);
   const [mobileTranscript, setMobileTranscript] = useState({ finalText: '', interim: '', listening: false });
   const [hideLiveCoach, setHideLiveCoach] = useState(rehearsalMode === 'continuous');
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
 
   const startedAt = useRef(0);
   const segmentStartAt = useRef(0);
@@ -223,10 +236,10 @@ export default function RehearsalStep({
     if (!live || !startedAt.current || liveWpm <= 0) return;
     const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
     if (t - lastPacePinAtRef.current < 4) return;
-    if (liveWpm > 180) {
+    if (liveWpm > LIVE_PACE_FAST) {
       lastPacePinAtRef.current = t;
       timelineEventsRef.current.push({ t, type: 'pace_fast', label: `พูดเร็ว (${liveWpm} คำ/นาที)` });
-    } else if (liveWpm < 95 && t >= 6) {
+    } else if (liveWpm < LIVE_PACE_SLOW && t >= WARMUP_SEC) {
       lastPacePinAtRef.current = t;
       timelineEventsRef.current.push({ t, type: 'pace_slow', label: `พูดช้า (${liveWpm} คำ/นาที)` });
     }
@@ -280,6 +293,7 @@ export default function RehearsalStep({
 
     socket.on('remote_joined', () => {
       setRemoteConnected(true);
+      setQrModalOpen(false);
     });
 
     socket.on('stage_command', ({ action }) => {
@@ -574,6 +588,7 @@ export default function RehearsalStep({
             transcript={results[activeInterruptSlide]?.transcript || ''}
             audience={audience}
             useGeminiTts={useGeminiTts}
+            vision={vision}
             onSpeakQuestion={(q) => {
               if (stageMode && roomCode) {
                 socketRef.current?.emit('stage_speak', { code: roomCode, text: q });
@@ -640,52 +655,76 @@ export default function RehearsalStep({
                 ? `กล้อง: เปิด (${vision.eyeContactPct}%)`
                 : 'กล้อง: ปิด'}
           </button>
-          {stageMode ? (
+          <div className="relative">
             <button
               type="button"
-              onClick={() => setQrModalOpen(true)}
-              disabled={live}
-              className="flex items-center gap-1.5 rounded-full border border-accent bg-accent text-white px-3 py-1 text-xs font-medium transition disabled:opacity-40 cursor-pointer"
+              onClick={() => setShowOptionsMenu((v) => !v)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition cursor-pointer ${
+                showOptionsMenu || stageMode
+                  ? 'border-ink bg-ink text-paper'
+                  : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
+              }`}
             >
-              <span className={`size-1.5 rounded-full ${remoteConnected ? 'bg-white' : 'bg-white/60 animate-pulse'}`} />
-              {remoteConnected ? 'รีโมตเชื่อมแล้ว (ดู QR)' : 'รอสแกน QR'}
+              {stageMode ? (remoteConnected ? 'เพิ่มเติม · รีโมตเชื่อมแล้ว' : 'เพิ่มเติม · รอ QR') : 'เพิ่มเติม'}
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setStageMode(true);
-                setQrModalOpen(true);
-              }}
-              disabled={live}
-              className="rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink transition hover:border-faint disabled:opacity-40 cursor-pointer"
-            >
-              โหมดเวที (QR รีโมต)
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setHideLiveCoach((v) => !v)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition cursor-pointer ${
-              hideLiveCoach
-                ? 'border-ink bg-ink text-paper'
-                : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
-            }`}
-          >
-            ซ่อนตัวช่วยระหว่างพูด: {hideLiveCoach ? 'เปิด' : 'ปิด'}
-          </button>
-          <button
-            type="button"
-            onClick={onInterruptToggle}
-            disabled={live}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition disabled:opacity-40 cursor-pointer ${
-              interruptEnabled
-                ? 'border-ink bg-ink text-paper'
-                : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
-            }`}
-          >
-            สุ่มถามระหว่างซ้อม: {interruptEnabled ? 'เปิด' : 'ปิด'} (-1 Token/ข้อ)
-          </button>
+
+            {showOptionsMenu && (
+              <div className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-line bg-white p-3 shadow-lg space-y-2">
+                <p className="px-1 text-[11px] font-semibold text-muted">ตัวเลือกห้องซ้อม</p>
+                {stageMode ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQrModalOpen(true);
+                      setShowOptionsMenu(false);
+                    }}
+                    disabled={live}
+                    className="flex w-full items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-left text-xs font-medium text-accent disabled:opacity-40 cursor-pointer"
+                  >
+                    <span>{remoteConnected ? 'รีโมตเชื่อมแล้ว (ดู QR)' : 'รอสแกน QR รีโมต'}</span>
+                    <span>เปิด QR</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStageMode(true);
+                      setQrModalOpen(true);
+                      setShowOptionsMenu(false);
+                    }}
+                    disabled={live}
+                    className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs font-medium text-ink hover:border-faint disabled:opacity-40 cursor-pointer"
+                  >
+                    <span>โหมดเวที (QR รีโมตมือถือ)</span>
+                    <span className="text-muted">เปิด</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setHideLiveCoach((v) => !v)}
+                  className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs text-ink hover:border-faint cursor-pointer"
+                >
+                  <span>ซ่อนตัวช่วยระหว่างพูด</span>
+                  <span className={hideLiveCoach ? 'font-semibold text-ink' : 'text-muted'}>
+                    {hideLiveCoach ? 'เปิด' : 'ปิด'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onInterruptToggle}
+                  disabled={live}
+                  className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs text-ink hover:border-faint disabled:opacity-40 cursor-pointer"
+                >
+                  <span>สุ่มถามแทรก (-1 Token/ข้อ)</span>
+                  <span className={interruptEnabled ? 'font-semibold text-ink' : 'text-muted'}>
+                    {interruptEnabled ? 'เปิด' : 'ปิด'}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-muted">
             ซ้อมแล้ว <span className="font-mono tabular-nums text-ink">{doneCount}</span> จาก {total} หน้า
           </p>

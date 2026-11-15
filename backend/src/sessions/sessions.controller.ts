@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import {
   IsBoolean,
   IsInt,
@@ -71,6 +71,17 @@ export class SessionsController {
 
   @Post()
   saveSession(@Req() req: { user: AuthUserPayload }, @Body() body: SaveSessionDto) {
+    const payloadSize = Buffer.byteLength(
+      JSON.stringify({
+        slidesJson: body.slidesJson ?? null,
+        qaJson: body.qaJson ?? null,
+        summaryJson: body.summaryJson ?? null,
+      }),
+      'utf8',
+    );
+    if (payloadSize > 512 * 1024) {
+      throw new BadRequestException('ข้อมูลประวัติการซ้อมมีขนาดใหญ่เกินกำหนด (สูงสุด 512KB)');
+    }
     return this.sessionsService.saveSession(req.user.id, body);
   }
 

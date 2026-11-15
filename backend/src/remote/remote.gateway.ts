@@ -17,20 +17,26 @@ function isAllowedRemoteOrigin(origin: string | undefined): boolean {
   const configured = process.env.FRONTEND_URL?.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  if (configured?.includes(origin)) return true;
-  return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin);
+  return Boolean(configured?.includes(origin));
 }
 
 function getLanIp(): string | null {
   const nets = networkInterfaces();
+  const candidates: string[] = [];
   for (const list of Object.values(nets)) {
     for (const net of list ?? []) {
       if (net.family === 'IPv4' && !net.internal) {
-        return net.address;
+        candidates.push(net.address);
       }
     }
   }
-  return null;
+  // ให้ความสำคัญกับ Wi-Fi / LAN จริง (192.168.x.x, 10.x.x.x) ก่อน Virtual adapter (เช่น 172.x ของ WSL/Docker)
+  return (
+    candidates.find((ip) => ip.startsWith('192.168.')) ??
+    candidates.find((ip) => ip.startsWith('10.')) ??
+    candidates[0] ??
+    null
+  );
 }
 
 function makeRoomCode(): string {
@@ -55,6 +61,19 @@ export class RemoteGateway {
   @WebSocketServer()
   server!: Server;
 
+  private readonly joinAttempts = new Map<string, { count: number; resetAt: number }>();
+
+  private checkJoinRateLimit(socketId: string): boolean {
+    const now = Date.now();
+    const cur = this.joinAttempts.get(socketId);
+    if (!cur || now > cur.resetAt) {
+      this.joinAttempts.set(socketId, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    cur.count += 1;
+    return cur.count <= 10;
+  }
+
   private getJoinedRoom(client: Socket, rawCode?: string): string | null {
     const code = rawCode?.trim().toUpperCase();
     if (!code || !client.rooms.has(code)) {
@@ -78,6 +97,9 @@ export class RemoteGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { code?: string },
   ) {
+    if (!this.checkJoinRateLimit(client.id)) {
+      return { ok: false, message: 'ลองเข้าร่วมห้องบ่อยเกินไป กรุณารอสักครู่' };
+    }
     const code = body?.code?.trim().toUpperCase();
     if (!code || !this.server.sockets.adapter.rooms.has(code)) {
       return { ok: false, message: 'ไม่พบห้องนี้ หรือหน้าจอคอมปิดโหมดเวทีไปแล้ว' };

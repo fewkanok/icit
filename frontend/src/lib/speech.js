@@ -27,43 +27,67 @@ export function stopSpeaking() {
 }
 
 export function speakThai(text) {
-  if (!window.speechSynthesis || !text) return;
+  if (!window.speechSynthesis || !text) return Promise.resolve();
 
   stopSpeaking();
   const synth = window.speechSynthesis;
 
-  const run = () => {
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'th-TH';
-    utter.rate = 1.0;
-    const voice = pickBestThaiVoice(synth.getVoices());
-    if (voice) utter.voice = voice;
-    synth.speak(utter);
-  };
-
-  if (synth.getVoices().length > 0) {
-    run();
-  } else {
-    const onReady = () => {
-      synth.removeEventListener('voiceschanged', onReady);
-      run();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
     };
-    synth.addEventListener('voiceschanged', onReady, { once: true });
-    setTimeout(() => {
-      synth.removeEventListener('voiceschanged', onReady);
-      if (!synth.speaking) run();
-    }, 150);
-  }
+
+    const run = () => {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'th-TH';
+      utter.rate = 1.0;
+      const voice = pickBestThaiVoice(synth.getVoices());
+      if (voice) utter.voice = voice;
+      utter.onend = finish;
+      utter.onerror = finish;
+      synth.speak(utter);
+      // กันกรณีเบราว์เซอร์บางตัวไม่ยิง onend
+      setTimeout(finish, Math.max(4000, text.length * 160));
+    };
+
+    if (synth.getVoices().length > 0) {
+      run();
+    } else {
+      const onReady = () => {
+        synth.removeEventListener('voiceschanged', onReady);
+        run();
+      };
+      synth.addEventListener('voiceschanged', onReady, { once: true });
+      setTimeout(() => {
+        synth.removeEventListener('voiceschanged', onReady);
+        if (!synth.speaking) run();
+      }, 150);
+    }
+  });
 }
 
 function playAudioUrl(url) {
   stopSpeaking();
-  const audio = new Audio(url);
-  activeAudio = audio;
-  audio.onended = () => {
-    if (activeAudio === audio) activeAudio = null;
-  };
-  return audio.play();
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(url);
+    activeAudio = audio;
+    const finish = () => {
+      if (activeAudio === audio) activeAudio = null;
+      resolve();
+    };
+    audio.onended = finish;
+    audio.onerror = () => {
+      if (activeAudio === audio) activeAudio = null;
+      reject(new Error('Audio playback failed'));
+    };
+    audio.play().catch((err) => {
+      if (activeAudio === audio) activeAudio = null;
+      reject(err);
+    });
+  });
 }
 
 async function fetchGeminiTtsUrl(clean) {
@@ -96,18 +120,22 @@ export async function preloadQuestionSpeech(text) {
   }
 }
 
-export async function speakQuestion(text, { useGemini = false } = {}) {
+export async function speakQuestion(text, { useGemini = false, onAudioUrl = null } = {}) {
   const clean = text?.trim();
   if (!clean) return;
 
   if (!useGemini) {
-    speakThai(clean);
+    await speakThai(clean);
     return;
   }
 
   try {
     const url = await fetchGeminiTtsUrl(clean);
     if (url) {
+      if (typeof onAudioUrl === 'function') {
+        const handled = await onAudioUrl(url);
+        if (handled) return;
+      }
       await playAudioUrl(url);
       return;
     }
@@ -115,5 +143,5 @@ export async function speakQuestion(text, { useGemini = false } = {}) {
     // ถ้าโควตาหมดหรือปิด API ให้สลับกลับมาใช้เสียงเบราว์เซอร์อัตโนมัติ
   }
 
-  speakThai(clean);
+  await speakThai(clean);
 }

@@ -6,7 +6,18 @@ import { useAudioRecorder } from '../lib/useAudioRecorder';
 import { useVideoRecorder } from '../lib/useVideoRecorder';
 import { generateQaQuestions } from '../lib/api';
 import { preloadQuestionSpeech, speakQuestion, stopSpeaking } from '../lib/speech';
-import { analyze, countWords, formatTime, pace, PACE_PILL, PACE_TEXT } from '../lib/metrics';
+import {
+  analyze,
+  countWords,
+  formatTime,
+  LIVE_PACE_FAST,
+  LIVE_PACE_SLOW,
+  pace,
+  PACE_PILL,
+  PACE_TEXT,
+  PACE_WARMUP_SEC,
+  PACE_WINDOW_SEC,
+} from '../lib/metrics';
 
 function getSlideText(slide) {
   if (!slide) return '';
@@ -42,7 +53,9 @@ export default function QaStep({
   const [elapsed, setElapsed] = useState(0);
   const [qaTotalSec, setQaTotalSec] = useState(0);
   const [liveWpm, setLiveWpm] = useState(0);
+  const [qaPhase, setQaPhase] = useState('idle'); // 'idle' | 'asking' | 'answering'
   const startedAt = useRef(0);
+  const answerStartedAt = useRef(0);
   const samples = useRef([]);
   const textRef = useRef('');
 
@@ -74,22 +87,22 @@ export default function QaStep({
   }, [speech.listening, recorder.isDeadAir]);
 
   useEffect(() => {
-    if (!speech.listening || !startedAt.current) return;
+    if (qaPhase === 'idle' || !startedAt.current) return;
     if (vision.lookingDownCount > lastLookingDownRef.current) {
       lastLookingDownRef.current = vision.lookingDownCount;
       const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
       qaTimelineRef.current.push({ t, type: 'eye', label: 'ก้มอ่าน / สายตาหลุดกล้อง' });
     }
-  }, [speech.listening, vision.lookingDownCount]);
+  }, [qaPhase, vision.lookingDownCount]);
 
   useEffect(() => {
     if (!speech.listening || !startedAt.current || liveWpm <= 0) return;
     const t = Number(((Date.now() - startedAt.current) / 1000).toFixed(1));
     if (t - lastPacePinAtRef.current < 4) return;
-    if (liveWpm > 180) {
+    if (liveWpm > LIVE_PACE_FAST) {
       lastPacePinAtRef.current = t;
       qaTimelineRef.current.push({ t, type: 'pace_fast', label: `พูดเร็ว (${liveWpm} คำ/นาที)` });
-    } else if (liveWpm < 95 && t >= 6) {
+    } else if (liveWpm < LIVE_PACE_SLOW && t >= PACE_WARMUP_SEC) {
       lastPacePinAtRef.current = t;
       qaTimelineRef.current.push({ t, type: 'pace_slow', label: `พูดช้า (${liveWpm} คำ/นาที)` });
     }
@@ -119,23 +132,23 @@ export default function QaStep({
     }
   }, [speech.listening, speech.finalText, speech.interim]);
 
-  // จับเวลาและคำนวณ WPM ระหว่างอัดเสียงตอบ
+  // จับเวลาและคำนวณ WPM เฉพาะช่วงที่เริ่มตอบคำถามจริง (ไม่นับช่วงฟังกรรมการถาม)
   useEffect(() => {
-    if (!speech.listening) return;
+    if (qaPhase !== 'answering' || !answerStartedAt.current) return;
     samples.current = [{ t: 0, w: 0 }];
     setLiveWpm(0);
     const id = setInterval(() => {
-      const t = (Date.now() - startedAt.current) / 1000;
+      const t = (Date.now() - answerStartedAt.current) / 1000;
       const w = countWords(textRef.current);
       setElapsed(t);
       const s = samples.current;
       s.push({ t, w });
-      while (s.length > 1 && s[1].t <= t - 10) s.shift();
+      while (s.length > 1 && s[1].t <= t - PACE_WINDOW_SEC) s.shift();
       const span = t - s[0].t;
-      setLiveWpm(t >= 5 && span > 0 ? Math.max(0, Math.round((w - s[0].w) / (span / 60))) : 0);
+      setLiveWpm(t >= PACE_WARMUP_SEC && span > 0 ? Math.max(0, Math.round((w - s[0].w) / (span / 60))) : 0);
     }, 250);
     return () => clearInterval(id);
-  }, [speech.listening]);
+  }, [qaPhase]);
 
   // นับเวลารวมช่วงถาม-ตอบเทียบกับเวลาเป้าหมาย (เริ่มนับเฉพาะเมื่อโหลดคำถามเสร็จแล้ว)
   useEffect(() => {
@@ -200,29 +213,79 @@ export default function QaStep({
   const currentQ = questions[currentIdx];
   const isLast = currentIdx === questions.length - 1;
 
-  // เล่นเสียงคำถามอัตโนมัติทุกครั้งที่ขึ้นคำถามใหม่ และโหลดเสียงข้อถัดไปล่วงหน้าถ้าเปิด Gemini TTS
+  // เริ่มอัดตั้งแต่กรรมการถาม -> จบคำถามแล้วเปิดไมค์ถอดเสียงและเริ่มนับ WPM อัตโนมัติ
   useEffect(() => {
     let active = true;
-    if (!loading && !evaluating && currentQ?.question) {
+    if (loading || evaluating || !currentQ?.question) return () => {};
+
+    const nextQ = questions[currentIdx + 1];
+    if (useGeminiTts && nextQ?.question && !qaOvertime) {
+      void preloadQuestionSpeech(nextQ.question);
+    }
+
+    async function beginQuestionTurn() {
+      stopSpeaking();
+      recorder.stopTtsMix();
+      startedAt.current = Date.now();
+      answerStartedAt.current = 0;
+      qaTimelineRef.current = [{ t: 0, type: 'qa', label: 'กรรมการกำลังถาม' }];
+      lastPacePinAtRef.current = -10;
+      lastLookingDownRef.current = 0;
+      lastFillerCountRef.current = 0;
+      setElapsed(0);
+      setLiveWpm(0);
+      setAnswerText('');
+      textRef.current = '';
+      setQaPhase('asking');
+      recorder.setDeadAirPaused(true);
+
+      const audioStream = await recorder.start();
+      if (!active) {
+        await recorder.stop();
+        return;
+      }
+      if (vision.cameraActive) {
+        vision.startTracking();
+        videoRecorder.start(vision.getStream(), audioStream);
+      }
+
       if (useGeminiTts) setAudioLoading(true);
-      void speakQuestion(currentQ.question, { useGemini: useGeminiTts }).finally(() => {
+      await speakQuestion(currentQ.question, {
+        useGemini: useGeminiTts,
+        onAudioUrl: (url) => recorder.playTtsIntoMix(url),
+      }).finally(() => {
         if (active) setAudioLoading(false);
       });
-      const nextQ = questions[currentIdx + 1];
-      if (useGeminiTts && nextQ?.question && !qaOvertime) {
-        void preloadQuestionSpeech(nextQ.question);
-      }
+
+      if (!active) return;
+      const ansNow = Date.now();
+      answerStartedAt.current = ansNow;
+      const ansT = Number(((ansNow - startedAt.current) / 1000).toFixed(1));
+      qaTimelineRef.current.push({ t: ansT, type: 'qa', label: 'เริ่มตอบคำถาม' });
+      recorder.setDeadAirPaused(false);
+      setQaPhase('answering');
+      speech.start();
     }
+
+    void beginQuestionTurn();
+
     return () => {
       active = false;
+      stopSpeaking();
+      recorder.stopTtsMix();
     };
-  }, [loading, evaluating, currentIdx, currentQ?.question, questions, useGeminiTts, qaOvertime]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, evaluating, currentIdx, currentQ?.question]);
 
   async function stopRecordingForCurrent() {
+    stopSpeaking();
+    recorder.stopTtsMix();
+    recorder.setDeadAirPaused(false);
     speech.stop();
     const recResult = await recorder.stop();
     const videoResult = await videoRecorder.stop();
     vision.stopTracking();
+    setQaPhase('idle');
 
     const prev = draftMediaRef.current[currentIdx];
     if (recResult?.audioUrl) {
@@ -246,11 +309,12 @@ export default function QaStep({
   }
 
   async function toggleMic() {
-    if (speech.listening) {
+    if (speech.listening || recorder.recording || qaPhase !== 'idle') {
       await stopRecordingForCurrent();
     } else {
       stopSpeaking();
       startedAt.current = Date.now();
+      answerStartedAt.current = Date.now();
       qaTimelineRef.current = [{ t: 0, type: 'qa', label: `เริ่มตอบ Q&A ข้อ ${currentIdx + 1}` }];
       lastPacePinAtRef.current = -10;
       lastLookingDownRef.current = 0;
@@ -258,6 +322,8 @@ export default function QaStep({
       setElapsed(0);
       setAnswerText('');
       textRef.current = '';
+      recorder.setDeadAirPaused(false);
+      setQaPhase('answering');
       speech.start();
       const audioStream = await recorder.start();
       if (vision.cameraActive) {
@@ -296,7 +362,7 @@ export default function QaStep({
   async function recordAndAdvance(answerValue) {
     if (!currentQ || evaluating) return;
     stopSpeaking();
-    if (speech.listening) {
+    if (speech.listening || recorder.recording || qaPhase !== 'idle') {
       await stopRecordingForCurrent();
     }
 
@@ -440,29 +506,41 @@ export default function QaStep({
       {!loading && currentQ && (
         <div className="mt-8 space-y-5">
           {/* การ์ดคำถาม */}
-          <div className="rounded-xl border border-line bg-white p-6">
+          <div className="rounded-2xl border border-line bg-white p-7">
             <div className="flex items-center justify-between text-xs text-muted">
-              <span className="font-mono">
+              <span className="rounded-full bg-paper border border-line px-2.5 py-0.5 font-mono text-[11px] font-medium text-ink">
                 คำถาม {currentIdx + 1} / {questions.length}
               </span>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
+                  const wasAnswering = qaPhase === 'answering' && speech.listening;
+                  if (wasAnswering) {
+                    speech.stop();
+                    recorder.setDeadAirPaused(true);
+                  }
                   if (useGeminiTts) setAudioLoading(true);
-                  void speakQuestion(currentQ.question, { useGemini: useGeminiTts }).finally(() =>
-                    setAudioLoading(false),
-                  );
+                  await speakQuestion(currentQ.question, {
+                    useGemini: useGeminiTts,
+                    onAudioUrl: recorder.recording ? (url) => recorder.playTtsIntoMix(url) : null,
+                  }).finally(() => setAudioLoading(false));
+                  if (wasAnswering) {
+                    recorder.setDeadAirPaused(false);
+                    speech.start({ preserveText: true });
+                  }
                 }}
-                disabled={audioLoading}
-                className="rounded-md border border-line px-2.5 py-1 text-ink transition hover:border-faint disabled:opacity-50 cursor-pointer"
+                disabled={audioLoading || qaPhase === 'asking'}
+                className="rounded-lg border border-line bg-paper px-3 py-1.5 font-medium text-ink transition hover:border-faint disabled:opacity-50 cursor-pointer"
               >
-                {audioLoading ? 'กำลังโหลดเสียง...' : 'ฟังซ้ำ'}
+                {audioLoading ? 'กำลังโหลดเสียง...' : 'ฟังคำถามอีกครั้ง'}
               </button>
             </div>
 
-            <p className="mt-4 text-lg font-medium leading-relaxed text-ink">{currentQ.question}</p>
+            <p className="mt-5 text-xl font-semibold leading-snug text-ink">{currentQ.question}</p>
             {currentQ.intent && (
-              <p className="mt-2 text-xs text-muted">จุดประสงค์: {currentQ.intent}</p>
+              <p className="mt-2.5 text-xs leading-relaxed text-muted">
+                <span className="font-medium text-ink/75">จุดประสงค์:</span> {currentQ.intent}
+              </p>
             )}
           </div>
 
@@ -481,7 +559,11 @@ export default function QaStep({
                       : 'border border-line bg-paper text-ink hover:border-faint'
                   }`}
                 >
-                  {speech.listening ? 'หยุดอัดเสียง' : 'กดเพื่อตอบด้วยเสียง'}
+                  {qaPhase === 'asking'
+                    ? 'กรรมการกำลังถาม...'
+                    : speech.listening
+                      ? 'หยุดอัดเสียง'
+                      : 'กดเพื่อตอบด้วยเสียง'}
                 </button>
               )}
             </div>
@@ -536,7 +618,7 @@ export default function QaStep({
                 type="button"
                 onClick={handleSubmitAnswer}
                 disabled={!answerText.trim() || evaluating}
-                className="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-paper transition hover:bg-ink/85 disabled:opacity-40 cursor-pointer"
+                className="rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:opacity-40 cursor-pointer"
               >
                 {evaluating
                   ? 'กำลังตรวจคำตอบทั้งหมด...'

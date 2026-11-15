@@ -22,6 +22,16 @@ function getCorsOrigin(): boolean | string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const httpAdapter = app.getHttpAdapter().getInstance();
+  if (typeof httpAdapter?.disable === 'function') {
+    httpAdapter.disable('x-powered-by');
+  }
+  app.use((_req: unknown, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
   app.enableCors({ origin: getCorsOrigin(), credentials: true });
   app.use(json({ limit: '8mb' }));
   app.useGlobalPipes(

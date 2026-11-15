@@ -10,8 +10,9 @@ export function useSpeechRecognition(lang = 'th-TH') {
   const recRef = useRef(null);
   const wantRef = useRef(false);
 
-  const start = useCallback(() => {
+  const start = useCallback(({ preserveText = false } = {}) => {
     if (!SR) return;
+    if (recRef.current && wantRef.current) return;
     const rec = new SR();
     rec.lang = lang;
     rec.continuous = true;
@@ -51,7 +52,9 @@ export function useSpeechRecognition(lang = 'th-TH') {
 
     recRef.current = rec;
     wantRef.current = true;
-    setFinalText('');
+    if (!preserveText) {
+      setFinalText('');
+    }
     setInterim('');
     setError(null);
     rec.start();

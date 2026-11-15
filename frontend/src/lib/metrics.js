@@ -77,9 +77,13 @@ export function analyze(transcript, durationSec) {
   return { transcript, duration: durationSec, words, wpm, fillers: countFillers(transcript) };
 }
 
-// เกณฑ์ความเร็ว (คำ/นาที) — ปรับตัวเลขได้ที่นี่ที่เดียว
+// เกณฑ์ความเร็ว (คำ/นาที) — ปรับสำหรับตัวตัดคำภาษาไทย (Intl.Segmenter) ซึ่งซอยคำถี่กว่าภาษาอังกฤษ
 export const PACE_MIN = 90;
-export const PACE_MAX = 170;
+export const PACE_MAX = 205;
+export const LIVE_PACE_SLOW = 95;
+export const LIVE_PACE_FAST = 215;
+export const PACE_WINDOW_SEC = 15;
+export const PACE_WARMUP_SEC = 6;
 
 export function pace(wpm) {
   if (!wpm) return null;

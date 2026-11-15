@@ -166,12 +166,15 @@ export default function RemotePage({ code }) {
         {/* ภาพสไลด์ปัจจุบัน + แตะลากชี้เลเซอร์ */}
         <div className="space-y-1">
           <div
-            onTouchStart={handleLaserMove}
-            onTouchMove={handleLaserMove}
-            onTouchEnd={handleLaserEnd}
-            onMouseMove={(e) => e.buttons === 1 && handleLaserMove(e)}
-            onMouseUp={handleLaserEnd}
-            onMouseLeave={handleLaserEnd}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              handleLaserMove(e);
+            }}
+            onPointerMove={(e) => {
+              if (e.buttons > 0 || e.pointerType === 'touch') handleLaserMove(e);
+            }}
+            onPointerUp={handleLaserEnd}
+            onPointerCancel={handleLaserEnd}
             className="relative aspect-video w-full touch-none select-none overflow-hidden rounded-xl border border-line bg-white shadow-xs"
           >
             {state.slide?.src ? (

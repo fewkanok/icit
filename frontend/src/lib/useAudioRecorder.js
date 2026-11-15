@@ -36,6 +36,9 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
   const analyserRef = useRef(null);
   const animFrameRef = useRef(null);
   const streamRef = useRef(null);
+  const mixDestRef = useRef(null);
+  const ttsSourceRef = useRef(null);
+  const deadAirPausedRef = useRef(false);
 
   // ตัวจับเวลาเดดแอร์
   const silenceStartRef = useRef(null);
@@ -43,12 +46,75 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
   const deadAirTotalSecRef = useRef(0);
   const inDeadAirRef = useRef(false);
 
+  const stopTtsMix = useCallback(() => {
+    if (ttsSourceRef.current) {
+      try {
+        ttsSourceRef.current.stop();
+        ttsSourceRef.current.disconnect();
+      } catch {
+        /* ignore */
+      }
+      ttsSourceRef.current = null;
+    }
+  }, []);
+
+  const setDeadAirPaused = useCallback((paused) => {
+    deadAirPausedRef.current = Boolean(paused);
+    if (paused) {
+      silenceStartRef.current = null;
+      if (inDeadAirRef.current) {
+        inDeadAirRef.current = false;
+        setIsDeadAir(false);
+      }
+    }
+  }, []);
+
+  const playTtsIntoMix = useCallback(
+    async (audioDataUrl) => {
+      const ctx = audioContextRef.current;
+      const dest = mixDestRef.current;
+      if (!ctx || !dest || !audioDataUrl || ctx.state === 'closed') return false;
+
+      stopTtsMix();
+      try {
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+        const res = await fetch(audioDataUrl);
+        const arr = await res.arrayBuffer();
+        const audioBuf = await ctx.decodeAudioData(arr);
+
+        await new Promise((resolve) => {
+          if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+            resolve();
+            return;
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = audioBuf;
+          src.connect(ctx.destination);
+          src.connect(dest);
+          ttsSourceRef.current = src;
+          src.onended = () => {
+            if (ttsSourceRef.current === src) ttsSourceRef.current = null;
+            resolve();
+          };
+          src.start(0);
+        });
+        return true;
+      } catch (err) {
+        console.warn('[useAudioRecorder] playTtsIntoMix failed:', err);
+        return false;
+      }
+    },
+    [stopTtsMix],
+  );
+
   const start = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // 1. ตั้งค่า Web Audio API สำหรับอ่านคลื่นเสียง
+      // 1. ตั้งค่า Web Audio API สำหรับอ่านคลื่นเสียงและผสมเสียง TTS (ถ้ามี)
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
@@ -59,10 +125,15 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      // 2. ตั้งค่า MediaRecorder เพื่ออัดเสียงเก็บใน RAM
+      const mixDest = audioCtx.createMediaStreamDestination();
+      source.connect(mixDest);
+      mixDestRef.current = mixDest;
+
+      // 2. ตั้งค่า MediaRecorder เพื่ออัดเสียงผสมเก็บใน RAM
+      const recordStream = mixDest.stream;
       const mimeType = getSupportedMimeType();
       const options = mimeType ? { mimeType } : {};
-      const mediaRecorder = new MediaRecorder(stream, options);
+      const mediaRecorder = new MediaRecorder(recordStream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -84,7 +155,7 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       silenceStartRef.current = null;
       inDeadAirRef.current = false;
 
-      // 3. วนลูปอ่านความดังเสียง (RMS) และตรวจจับ Dead Air
+      // 3. วนลูปอ่านความดังเสียง (RMS) และตรวจจับ Dead Air (เฉพาะช่วงที่ไม่ได้พัก Dead Air)
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       let lastCheckTime = Date.now();
 
@@ -103,6 +174,12 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
         const now = Date.now();
         const deltaSec = (now - lastCheckTime) / 1000;
         lastCheckTime = now;
+
+        if (deadAirPausedRef.current) {
+          silenceStartRef.current = null;
+          animFrameRef.current = requestAnimationFrame(checkAudio);
+          return;
+        }
 
         // ถ้าความดังเสียงต่ำกว่าเกณฑ์ (เงียบ)
         if (avg < silenceThreshold) {
@@ -137,7 +214,7 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       };
 
       checkAudio();
-      return stream;
+      return recordStream;
     } catch (err) {
       console.error("[useAudioRecorder] Audio recorder start error:", err);
       return null;
@@ -157,6 +234,8 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       const recorder = mediaRecorderRef.current;
 
       const cleanupHardware = () => {
+        stopTtsMix();
+        mixDestRef.current = null;
         // หยุด Stream ไมโครโฟน
         if (streamRef.current) {
           try {
@@ -236,5 +315,8 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
     deadAirStats,
     start,
     stop,
+    playTtsIntoMix,
+    stopTtsMix,
+    setDeadAirPaused,
   };
 }
