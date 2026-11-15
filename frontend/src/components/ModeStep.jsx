@@ -15,6 +15,7 @@ export default function ModeStep({
   cameraEnabled = true,
   onCameraToggle,
   onNext,
+  onEnterGroup,
 }) {
   const [setupOpen, setSetupOpen] = useState(false);
 
@@ -45,18 +46,22 @@ export default function ModeStep({
           <span className="mt-6 text-sm font-medium text-ink">ตั้งค่าห้องซ้อม →</span>
         </button>
 
-        <div className="flex flex-col justify-between rounded-2xl border border-dashed border-line bg-paper/60 p-6 text-left opacity-75">
+        <button
+          type="button"
+          onClick={onEnterGroup}
+          className="flex flex-col justify-between rounded-2xl border border-line bg-white p-6 text-left transition hover:border-ink hover:shadow-sm cursor-pointer"
+        >
           <div>
-            <span className="inline-block rounded-full border border-line bg-white px-2.5 py-0.5 text-[11px] font-medium text-muted">
-              กำลังพัฒนา
+            <span className="inline-block rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent">
+              เปิดห้อง Lobby แล้ว
             </span>
             <h2 className="mt-4 text-lg font-semibold text-ink">ซ้อมกลุ่ม</h2>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">
               สร้างห้องแชร์ลิงก์ให้เพื่อนเข้ามาซ้อมต่อคิวคนละช่วงสไลด์จากคนละเครื่อง
             </p>
           </div>
-          <span className="mt-6 text-xs text-muted">เปิดให้ใช้งานเร็วๆ นี้</span>
-        </div>
+          <span className="mt-6 text-sm font-medium text-ink">สร้าง / เข้าร่วมห้อง →</span>
+        </button>
       </div>
 
       {setupOpen && (

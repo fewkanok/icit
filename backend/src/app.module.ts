@@ -15,6 +15,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { GeminiModule } from './gemini/gemini.module.js';
+import { GroupModule } from './group/group.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RemoteModule } from './remote/remote.module.js';
 import { SessionsModule } from './sessions/sessions.module.js';
@@ -28,6 +29,7 @@ import { TokensModule } from './tokens/tokens.module.js';
     TokensModule,
     SessionsModule,
     GeminiModule,
+    GroupModule,
     RemoteModule,
   ],
   controllers: [AppController],

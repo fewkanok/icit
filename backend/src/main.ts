@@ -11,7 +11,7 @@ try {
 
 function getCorsOrigin(): boolean | string[] {
   const configured = process.env.FRONTEND_URL?.split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
   if (configured && configured.length > 0) {
     return configured;
@@ -33,7 +33,7 @@ async function bootstrap() {
     next();
   });
   app.enableCors({ origin: getCorsOrigin(), credentials: true });
-  app.use(json({ limit: '8mb' }));
+  app.use(json({ limit: '25mb' }));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

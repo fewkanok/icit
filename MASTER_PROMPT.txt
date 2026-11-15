@@ -36,7 +36,9 @@ AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
 [ส่วนที่ใช้งานฟรี (0 Tokens)]
 - อัปโหลดสไลด์ PDF / รูปภาพ และซ้อมพูด (ทีละสไลด์ หรือ ซ้อมต่อเนื่อง)
 - Real-time Speech Metrics (WPM, คำติดปาก, Dead Air) และ Eye Contact Tracking
-- อัดเสียง + อัดวิดีโอหน้ากล้อง (รวมคลิปทุกสไลด์เป็นคลิปเดียวด้วย `mediaMerge.js` และดาวน์โหลดได้)
+- ปรับความดังไมค์ของฉัน (`0% - 200%`) และกดฟังเสียงตัวเองก่อนซ้อมผ่าน `DeviceTestCard` (จำค่าข้ามไปตอนซ้อมจริง)
+- โหมดซ้อมพรีเซนต์กลุ่ม (Group Rehearsal): สร้าง/เข้าห้องด้วยรหัส 6 หลัก, ทดสอบไมค์/กล้อง, แบ่งสไลด์ให้สมาชิก, พูดผ่าน WebRTC (ปรับเสียงไมค์ตัวเอง + เสียงเพื่อนรายคนได้), หน้าต่างกล้องลอย (S/M/L/ย่อ/ซ่อน/ลากปรับขนาด), และสรุปผลทั้งกลุ่มหรือแยกรายคนพร้อมรวมคลิป `.wav` / `.mp4`
+- อัดเสียง + อัดวิดีโอหน้ากล้อง (รวมคลิปทุกสไลด์เป็นคลิปเดียวด้วย `mediaMerge.js` และจัดเลย์เอาต์ผ่าน `VideoLayoutModal` ก่อนดาวน์โหลดได้)
 - Timeline Replay พร้อมหมุดเหตุการณ์ทุกจุดบนวิดีโอ
 - รีโมทเลื่อนสไลด์ผ่าน QR Code มือถือ + บันทึกประวัติการซ้อม
 
@@ -62,7 +64,9 @@ AI Presentation & Q&A Rehearsal Coach (SpeakQuest)
 [Backend - NestJS (TypeScript) @ Port `process.env.PORT ?? 3000`]
 - Framework & Security: NestJS + `ValidationPipe({ whitelist: true })` + `@nestjs/throttler` (Rate Limiting) + CORS
 - Database & Auth: PostgreSQL + Prisma (`PrismaService`) + Supabase Auth (`SupabaseAuthGuard` ตรวจสอบ JWT)
-- Real-time Remote: Socket.IO (`RemoteGateway` สำหรับรีโมทมือถือผ่าน QR Code)
+- Real-time Remote & Group Mode:
+  - `RemoteGateway` (Socket.IO สำหรับรีโมทมือถือผ่าน QR Code)
+  - `GroupGateway` + `GroupController` (Socket.IO + WebRTC Signaling + REST `/group/:code/clips` สำหรับซ้อมพรีเซนต์กลุ่ม, ซิงก์สไลด์, มอบหมายคิวผู้พูด, และเก็บคลิปชั่วคราวในตาราง `GroupClip` ของ PostgreSQL/Supabase พร้อม HTTP Range streaming และลบอัตโนมัติเมื่อทุกคนออกจากห้องหรือค้างเกิน 4 ชั่วโมง)
 - AI SDK: `@google/genai` (โหลด `GEMINI_API_KEY` จาก `backend/.env` ด้วย `process.loadEnvFile()`)
   - JSON / Text Tasks: ใช้ค่าเริ่มต้นของ SDK + fallback models (`GEMINI_MODEL` -> `gemini-3.1-flash-lite` -> `gemini-2.5-flash-lite` -> `gemini-2.5-flash`)
   - Gemini TTS (`synthesizeSpeech`): ใช้ `apiVersion: 'v1beta'` และแปลง PCM 24kHz เป็น WAV Data URL (`pcmToWavDataUrl`) พร้อม in-memory cache และ fallback อัตโนมัติหากโมเดลไม่รองรับ `speechConfig`
@@ -112,25 +116,33 @@ Step 5: [SummaryStep] แดชบอร์ดสรุปผล & Timeline Repl
 --------------------------------------------------------------------------------
 [Backend - `backend/src/`]
 - `main.ts` - Bootstrap NestJS + CORS + `ValidationPipe` + JSON body limit
-- `app.module.ts` - Root module (`ThrottlerModule`, `PrismaModule`, `AuthModule`, `TokensModule`, `SessionsModule`, `GeminiModule`, `RemoteModule`)
+- `app.module.ts` - Root module (`ThrottlerModule`, `PrismaModule`, `AuthModule`, `TokensModule`, `SessionsModule`, `GeminiModule`, `RemoteModule`, `GroupModule`)
 - `auth/` - `auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth.module.ts` (Supabase JWT + Welcome Bonus + Referral)
 - `tokens/` - `tokens.controller.ts`, `tokens.service.ts`, `tokens.module.ts` (Token balance, transactions, `spendTokens`, `refundTokens`, `mockTopup`)
 - `sessions/` - `sessions.controller.ts`, `sessions.service.ts`, `sessions.module.ts` (บันทึก/ดึงประวัติการซ้อม + แจกรางวัล Referral เมื่อซ้อมครบเกณฑ์)
-- `prisma/` - `prisma.service.ts`, `prisma.module.ts` (PostgreSQL ORM)
+- `prisma/` - `prisma.service.ts`, `prisma.module.ts` (PostgreSQL ORM — `User`, `TokenTransaction`, `RehearsalSession`, `RehearsalParticipant`, `GroupClip`)
 - `gemini/gemini.controller.ts` - REST endpoints (`/api/gemini/*`) พร้อม Rate Limit และหัก/คืน Token
 - `gemini/gemini.service.ts` - Logic เรียก Gemini API, JSON fallback, Timeline-aware prompts (`analyzeSummary`, `evaluateQa`) และ TTS (`v1beta` + WAV conversion)
 - `gemini/dto/gemini.dto.ts` - DTOs สำหรับ `ValidationPipe` (`SummaryTimelineEventDto`, `QaEvaluateDto`, `SummaryAnalyzeDto`, ฯลฯ)
 - `remote/remote.gateway.ts` - Socket.IO gateway สำหรับ QR Mobile Remote
+- `group/group.gateway.ts` - Socket.IO gateway สำหรับห้องซ้อมกลุ่ม (Lobby, Ready Check, Assignments, Slide Sync, WebRTC Signaling, Auto-prune 4h)
+- `group/group.controller.ts` - REST endpoints (`/group/:code/clips`) รับอัปโหลดคลิป Base64, สตรีมวิดีโอแบบ HTTP Range (`206 Partial Content`), และลบคลิปห้อง
 
 [Frontend - `frontend/src/`]
-- `App.jsx` - Main state, Supabase Auth session, Token Wallet sync, 5-step flow (`mode` -> `upload` -> `rehearsal` -> `qa` -> `summary`) + route `/remote/:roomId`
+- `App.jsx` - Main state, Supabase Auth session, Token Wallet sync, 5-step flow (`mode` -> `upload` -> `rehearsal` -> `qa` -> `summary`), โหมดกลุ่ม (`group`), และ route `/remote/:roomId`
 - `components/Header.jsx` - แถบนำทางด้านบน, ตัวบอกขั้นตอน, ปุ่มดูประวัติ, และแสดงยอด Token
 - `components/WalletModal.jsx` - หน้าต่างกระเป๋า Token, ลิงก์ชวนเพื่อน (`?ref=`), ประวัติธุรกรรม และเติม Token จำลอง
 - `components/HistoryModal.jsx` - หน้าต่างดูประวัติการซ้อมย้อนหลัง
-- `components/ModeStep.jsx` - หน้าเลือกกลุ่มผู้ฟังและเข้าตั้งค่าห้องซ้อม
+- `components/ModeStep.jsx` - หน้าเลือกกลุ่มผู้ฟัง, เข้าตั้งค่าห้องซ้อม, และเข้าสู่โหมดซ้อมกลุ่ม
 - `components/RoomSetupModal.jsx` - หน้าต่างตั้งค่าเวลา, โหมดซ้อม, กล้อง, คำถามแทรก, เสียง Gemini
-- `components/UploadStep.jsx` - อัปโหลดและแปลงสไลด์ PDF/รูปภาพ
-- `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก, ปักหมุด Timeline
+- `components/UploadStep.jsx` - อัปโหลดและแปลงสไลด์ PDF/รูปภาพ พร้อมการ์ดเช็กกล้อง/ไมค์ (`DeviceTestCard`)
+- `components/DeviceTestCard.jsx` - การ์ดทดสอบกล้อง/ไมค์, ปรับความดังไมค์ (`0% - 200%`), และปุ่มกดฟังเสียงตัวเอง
+- `components/GroupLobbyStep.jsx` - ห้อง Lobby กลุ่ม (สร้าง/เข้าห้อง 6 หลัก, ล็อกเริ่มจนกว่าทุกคนกดพร้อม, แบ่งสไลด์)
+- `components/GroupAssignModal.jsx` - หน้าต่างมอบหมายสไลด์ให้สมาชิกแต่ละคน
+- `components/GroupStageView.jsx` - หน้าพูดพรีเซนต์กลุ่ม (สไตล์ซ้อมเดี่ยว + คิวผู้พูด + กล้องลอย S/M/L + ปรับไมค์ตัวเองและเสียงเพื่อนรายคน + อัดคลิปส่ง Database)
+- `components/GroupSummaryView.jsx` - หน้าสรุปผลกลุ่ม (ภาพรวมทั้งกลุ่ม/แยกรายคน, รวมเสียง `.wav`, จัดเลย์เอาต์รวมวิดีโอ `.mp4`, Timeline Replay, แก้ข้อความ, โหลดเสียง/คลิปดิบ)
+- `components/VideoLayoutModal.jsx` - หน้าต่างจัดวางตำแหน่งสไลด์/กล้อง/Q&A ก่อนรวมไฟล์ `.mp4`
+- `components/RehearsalStep.jsx` - หน้าซ้อมพรีเซนต์หลัก, จับเวลา, กล้อง, รีโมท, คำถามแทรก, ปักหมุด Timeline, ปรับไมค์
 - `components/FloatingCamera.jsx` - หน้าต่างกล้องลอยปรับขนาดได้ (ลากมุม / S, M, L)
 - `components/SlideViewer.jsx` - แสดงสไลด์ปัจจุบัน
 - `components/InterruptModal.jsx` - หน้าต่างคำถามแทรกระหว่างพรีเซนต์
@@ -139,14 +151,15 @@ Step 5: [SummaryStep] แดชบอร์ดสรุปผล & Timeline Repl
 - `components/TimelineReplayPlayer.jsx` - Video player พร้อมแถบหมุดเหตุการณ์คลิกกระโดดไปยังวินาทีนั้นได้ทันที
 - `components/ConfirmModal.jsx` - หน้าต่างยืนยันกลาง
 - `components/RemotePage.jsx` - หน้าจอมือถือสำหรับควบคุมสไลด์ผ่าน QR Code
-- `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`, `/api/auth/*`, `/api/tokens/*`, `/api/sessions/*`)
+- `lib/api.js` - Client เรียก Backend REST API (`/api/gemini/*`, `/api/auth/*`, `/api/tokens/*`, `/api/sessions/*`, `/group/:code/clips`)
 - `lib/supabase.js` - Supabase client
 - `lib/mediaMerge.js` - รวมไฟล์เสียง/วิดีโอหลายสไลด์และคำนวณ offset ของ Timeline Events
 - `lib/metrics.js` - คำนวณ WPM, filler words (`countFillers`) และสถิติการพูด
 - `lib/slides.js` - แปลงและดึงข้อความจากไฟล์สไลด์ PDF/รูปภาพ
 - `lib/socket.js` - Socket.IO client
 - `lib/speech.js` - จัดการเสียงพูดคำถาม (Gemini TTS + cache + fallback `speakThai`)
-- `lib/useAudioRecorder.js` - Hook อัดเสียงและตรวจจับช่วงเงียบ (`isDeadAir`)
+- `lib/useGroupRtc.js` - Hook WebRTC mesh (ภาพ/เสียงระหว่างสมาชิก + `GainNode` ปรับไมค์ตัวเอง)
+- `lib/useAudioRecorder.js` - Hook อัดเสียง (`GainNode` ปรับไมค์ตัวเอง) และตรวจจับช่วงเงียบ (`isDeadAir`)
 - `lib/useSpeechRecognition.js` - Hook Web Speech API ถอดเสียงแบบ real-time
 - `lib/useVideoRecorder.js` - Hook อัดวิดีโอกล้องหน้าแบบ Local (WebM)
 - `lib/useFaceLandmarker.js` - Hook MediaPipe FaceLandmarker ตรวจการสบตากล้องและนับการก้มอ่าน (`lookingDownCount`, `lookingDownSec`)

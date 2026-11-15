@@ -77,3 +77,19 @@ model RehearsalParticipant {
   @@index([sessionId])
   @@index([userId])
 }
+
+model GroupClip {
+  id         String   @id @default(uuid()) @db.Uuid
+  roomCode   String
+  slideIndex Int
+  memberId   String
+  memberName String
+  mimeType   String
+  mediaData  Bytes
+  analysis   Json?
+  createdAt  DateTime @default(now())
+
+  @@unique([roomCode, slideIndex])
+  @@index([roomCode])
+  @@index([createdAt])
+}

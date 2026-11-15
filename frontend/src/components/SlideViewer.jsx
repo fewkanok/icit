@@ -25,7 +25,7 @@ function Arrow({ dir }) {
   );
 }
 
-export default function SlideViewer({ slides, index, onIndexChange, locked = false, laser = null }) {
+export default function SlideViewer({ slides, index, onIndexChange, locked = false, hideNav = false, laser = null }) {
   const total = slides?.length ?? 0;
   const slide = slides?.[index];
   const go = (i) => !locked && i >= 0 && i < total && onIndexChange(i);
@@ -64,7 +64,7 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
         )}
       </div>
 
-      {total > 0 && (
+      {total > 0 && !hideNav && (
         <div className="mt-4 flex items-center justify-between">
           <button
             onClick={() => go(index - 1)}

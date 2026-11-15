@@ -785,6 +785,25 @@ export default function RehearsalStep({
               </div>
             )}
 
+            {/* ปรับความดังไมโครโฟนของฉัน */}
+            <div className="rounded-lg border border-line bg-paper/70 px-3.5 py-2.5 space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-ink">เสียงไมค์ของฉัน</span>
+                <span className="font-mono text-[11px] tabular-nums text-muted">
+                  {Math.round(recorder.micGain * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.05}
+                value={recorder.micGain}
+                onChange={(e) => recorder.setMicGain(Number(e.target.value))}
+                className="w-full accent-ink cursor-pointer"
+              />
+            </div>
+
             {vision.cameraError && (
               <p className="text-xs text-accent">{vision.cameraError}</p>
             )}

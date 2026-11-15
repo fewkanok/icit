@@ -6,6 +6,7 @@ import RehearsalStep from './components/RehearsalStep';
 import QaStep from './components/QaStep';
 import SummaryStep from './components/SummaryStep';
 import RemotePage from './components/RemotePage';
+import GroupLobbyStep from './components/GroupLobbyStep';
 import WalletModal from './components/WalletModal';
 import HistoryModal from './components/HistoryModal';
 import { ConfirmDialogHost, resetConfirmSuppressions } from './components/ConfirmModal';
@@ -19,7 +20,12 @@ export default function App() {
       ? new URLSearchParams(window.location.search).get('remote')
       : null;
 
-  const [step, setStep] = useState('mode');
+  const initialGroupCode =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('group') || '').trim().toUpperCase()
+      : '';
+
+  const [step, setStep] = useState(initialGroupCode ? 'group' : 'mode');
   const [deck, setDeck] = useState(null); // { name, slides }
   const [rehearsalMode, setRehearsalMode] = useState('per_slide'); // per_slide | continuous
   const [audience, setAudience] = useState('general');
@@ -167,6 +173,22 @@ export default function App() {
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
             onNext={() => setStep('upload')}
+            onEnterGroup={() => setStep('group')}
+          />
+        )}
+
+        {step === 'group' && (
+          <GroupLobbyStep
+            initialCode={initialGroupCode}
+            user={user}
+            onBack={() => {
+              if (typeof window !== 'undefined' && window.location.search.includes('group=')) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('group');
+                window.history.replaceState({}, '', url.toString());
+              }
+              setStep('mode');
+            }}
           />
         )}
 

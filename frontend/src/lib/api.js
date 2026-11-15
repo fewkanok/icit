@@ -102,3 +102,24 @@ export function analyzeSummaryWithAi(payload) {
 export function synthesizeSpeechWithAi(text) {
   return postJson('/api/gemini/tts', { text });
 }
+
+export async function uploadGroupClip(roomCode, payload) {
+  return postJson(`/group/${encodeURIComponent(roomCode)}/clips`, payload, 60000);
+}
+
+export async function fetchGroupClips(roomCode) {
+  const res = await fetch(`${API_BASE}/group/${encodeURIComponent(roomCode)}/clips`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error(data?.message || 'โหลดคลิปกลุ่มไม่สำเร็จ');
+  return (Array.isArray(data) ? data : []).map((c) => ({
+    ...c,
+    mediaUrl: `${API_BASE}${c.mediaPath}`,
+  }));
+}
+
+export async function deleteGroupClips(roomCode) {
+  const res = await fetch(`${API_BASE}/group/${encodeURIComponent(roomCode)}/clips`, {
+    method: 'DELETE',
+  });
+  return res.json().catch(() => ({ ok: true }));
+}

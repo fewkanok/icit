@@ -29,11 +29,21 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
   const [volume, setVolume] = useState(0); // ระดับความดังเสียงสด 0 - 1
   const [isDeadAir, setIsDeadAir] = useState(false); // กำลังเดดแอร์อยู่หรือไม่
   const [deadAirStats, setDeadAirStats] = useState({ count: 0, totalSeconds: 0 });
+  const [micGain, setMicGain] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('rehearse_mic_gain'));
+      return Number.isFinite(saved) && saved >= 0 && saved <= 2 ? saved : 1;
+    } catch {
+      return 1;
+    }
+  });
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
+  const micGainNodeRef = useRef(null);
+  const micGainValueRef = useRef(1);
   const animFrameRef = useRef(null);
   const streamRef = useRef(null);
   const mixDestRef = useRef(null);
@@ -120,13 +130,18 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       audioContextRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = micGainValueRef.current;
+      micGainNodeRef.current = gainNode;
+      source.connect(gainNode);
+
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
-      source.connect(analyser);
+      gainNode.connect(analyser);
       analyserRef.current = analyser;
 
       const mixDest = audioCtx.createMediaStreamDestination();
-      source.connect(mixDest);
+      gainNode.connect(mixDest);
       mixDestRef.current = mixDest;
 
       // 2. ตั้งค่า MediaRecorder เพื่ออัดเสียงผสมเก็บใน RAM
@@ -294,9 +309,22 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
     });
   }, []);
 
+  useEffect(() => {
+    micGainValueRef.current = micGain;
+    if (micGainNodeRef.current) {
+      micGainNodeRef.current.gain.value = micGain;
+    }
+    try {
+      localStorage.setItem('rehearse_mic_gain', String(micGain));
+    } catch {
+      // ignore storage errors
+    }
+  }, [micGain]);
+
   // คลีนอัพ Stream และ AudioContext เมื่อถอด Hook (ไม่สั่ง revoke URL ที่ผู้ใช้ต้องนำไปฟัง)
   useEffect(() => {
     return () => {
+      micGainNodeRef.current = null;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(() => {});
@@ -313,6 +341,8 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
     volume,
     isDeadAir,
     deadAirStats,
+    micGain,
+    setMicGain,
     start,
     stop,
     playTtsIntoMix,
