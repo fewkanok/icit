@@ -80,23 +80,23 @@ export function fetchSessionDetail(id) {
 }
 
 export function checkSlideWithAi(payload) {
-  return postJson('/api/gemini/check-slide', payload);
+  return postJson('/api/gemini/check-slide', payload, 60000);
 }
 
 export function generateQaQuestions(payload) {
-  return postJson('/api/gemini/qa/generate', payload);
+  return postJson('/api/gemini/qa/generate', payload, 60000);
 }
 
 export function generateInterruptQuestion(payload) {
-  return postJson('/api/gemini/qa/interrupt', payload);
+  return postJson('/api/gemini/qa/interrupt', payload, 45000);
 }
 
 export function evaluateQaAnswer(payload) {
-  return postJson('/api/gemini/qa/evaluate', payload);
+  return postJson('/api/gemini/qa/evaluate', payload, 60000);
 }
 
 export function analyzeSummaryWithAi(payload) {
-  return postJson('/api/gemini/analyze-summary', payload);
+  return postJson('/api/gemini/analyze-summary', payload, 60000);
 }
 
 export function synthesizeFreeSpeech(text) {

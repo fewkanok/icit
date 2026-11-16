@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
 
 export type AudienceType = 'teacher' | 'executive' | 'general';
@@ -111,33 +111,59 @@ export class GeminiService {
   private async askJson<T>(contents: unknown): Promise<T> {
     const { ai, model } = this.getClient();
     const candidates = Array.from(
-      new Set([model, 'gemini-3.1-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']),
+      new Set([model, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite']),
     );
 
     let lastError: unknown;
     for (const candidate of candidates) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const res = await ai.models.generateContent({
-          model: candidate,
-          contents: contents as Parameters<typeof ai.models.generateContent>[0]['contents'],
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.4,
-          },
-        });
+        const res = await Promise.race([
+          ai.models.generateContent({
+            model: candidate,
+            contents: contents as Parameters<typeof ai.models.generateContent>[0]['contents'],
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.4,
+            },
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`GEMINI_TIMEOUT_${candidate}`)), 22000);
+          }),
+        ]);
         const text = res.text?.trim() || '{}';
         return JSON.parse(text) as T;
       } catch (err: unknown) {
         lastError = err;
         const status = (err as { status?: number })?.status;
         const msg = err instanceof Error ? err.message : String(err);
-        const isTransient = status === 503 || status === 429 || msg.includes('503') || msg.includes('429');
-        if (!isTransient) throw err;
+        console.warn(`[GeminiService] askJson failed on ${candidate}:`, msg);
+        const shouldFallback =
+          status === 503 ||
+          status === 429 ||
+          status === 500 ||
+          status === 504 ||
+          status === 404 ||
+          err instanceof SyntaxError ||
+          msg.includes('503') ||
+          msg.includes('429') ||
+          msg.includes('404') ||
+          msg.includes('GEMINI_TIMEOUT') ||
+          msg.includes('fetch failed');
+        if (!shouldFallback) {
+          throw new BadGatewayException(
+            msg.includes('API key') || status === 401 || status === 403
+              ? 'คีย์ Gemini API ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน'
+              : 'ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง',
+          );
+        }
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
 
     if (lastError) {
-      console.warn(
+      console.error(
         '[GeminiService] askJson failed across all models:',
         lastError instanceof Error ? lastError.message : lastError,
       );
@@ -145,7 +171,7 @@ export class GeminiService {
 
     throw new ServiceUnavailableException({
       error: 'AI_TEMPORARILY_UNAVAILABLE',
-      message: 'ตอนนี้ระบบ AI มีคนใช้งานพร้อมกันเยอะ กรุณากดส่งใหม่อีกครั้งในอีกสักครู่',
+      message: 'ตอนนี้ระบบ AI มีคนใช้งานพร้อมกันเยอะ หรือตอบสนองช้า กรุณากดลองใหม่อีกครั้งในอีกสักครู่',
     });
   }
 
