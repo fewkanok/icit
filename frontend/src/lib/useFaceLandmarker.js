@@ -52,6 +52,7 @@ export function useFaceLandmarker() {
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const ownsStreamRef = useRef(true);
   const animFrameRef = useRef(null);
   const landmarkerRef = useRef(null);
 
@@ -80,6 +81,7 @@ export function useFaceLandmarker() {
         audio: false,
       });
       streamRef.current = stream;
+      ownsStreamRef.current = true;
 
       // โหลดโมเดล MediaPipe
       const landmarker = await getFaceLandmarker();
@@ -95,6 +97,26 @@ export function useFaceLandmarker() {
     }
   }, []);
 
+  // เชื่อมต่อ Stream ภายนอก (เช่น WebRTC localStream ของโหมดกลุ่ม) โดยไม่เปิดกล้องซ้อน
+  const attachExternalStream = useCallback(async (stream) => {
+    if (!stream || stream.getVideoTracks().length === 0) return;
+    try {
+      setCameraError(null);
+      setModelLoading(true);
+      ownsStreamRef.current = false;
+      streamRef.current = stream;
+      const landmarker = await getFaceLandmarker();
+      landmarkerRef.current = landmarker;
+      setModelReady(true);
+      setModelLoading(false);
+      setCameraActive(true);
+    } catch (err) {
+      console.warn('[FaceLandmarker] attachExternalStream error:', err);
+      setModelLoading(false);
+      setCameraActive(false);
+    }
+  }, []);
+
   // 2. ปิดกล้องเว็บแคม
   const stopCamera = useCallback(() => {
     isTrackingRef.current = false;
@@ -103,12 +125,14 @@ export function useFaceLandmarker() {
       animFrameRef.current = null;
     }
     if (streamRef.current) {
-      try {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      } catch (_) {}
+      if (ownsStreamRef.current) {
+        try {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+        } catch (_) {}
+      }
       streamRef.current = null;
     }
-    if (videoRef.current) {
+    if (videoRef.current && ownsStreamRef.current) {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
@@ -118,7 +142,7 @@ export function useFaceLandmarker() {
   // Callback ref เชื่อมต่อสัญญาณวิดีโอทันที
   const setVideoRef = useCallback((node) => {
     videoRef.current = node;
-    if (node && streamRef.current) {
+    if (node && streamRef.current && node.srcObject !== streamRef.current) {
       node.srcObject = streamRef.current;
       node.onloadedmetadata = () => {
         node.play().catch((e) => console.log('[FaceLandmarker] Play err:', e));
@@ -317,7 +341,7 @@ export function useFaceLandmarker() {
   useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (streamRef.current) {
+      if (streamRef.current && ownsStreamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
@@ -335,6 +359,7 @@ export function useFaceLandmarker() {
     lookingDownCount,
     poseAngles,
     startCamera,
+    attachExternalStream,
     stopCamera,
     startTracking,
     stopTracking,

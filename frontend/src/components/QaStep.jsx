@@ -5,7 +5,7 @@ import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import { useAudioRecorder } from '../lib/useAudioRecorder';
 import { useVideoRecorder } from '../lib/useVideoRecorder';
 import { generateQaQuestions } from '../lib/api';
-import { preloadQuestionSpeech, speakQuestion, stopSpeaking } from '../lib/speech';
+import { preloadAllQuestionsSpeech, preloadQuestionSpeech, speakQuestion, stopSpeaking } from '../lib/speech';
 import {
   analyze,
   countWords,
@@ -30,8 +30,6 @@ export default function QaStep({
   deck,
   audience,
   timeBudget,
-  useGeminiTts = false,
-  onGeminiTtsToggle,
   cameraEnabled = true,
   onCameraToggle,
   results,
@@ -191,6 +189,8 @@ export default function QaStep({
         generatePromiseRef.current = null;
         setError('AI ไม่สามารถสร้างคำถามจากสไลด์นี้ได้');
       } else {
+        // เตรียมเสียงอ่านคำถาม Edge-TTS ครบทุกข้อก่อนเปิดหน้าถาม-ตอบ
+        await preloadAllQuestionsSpeech(list);
         setQuestions(list);
       }
     } catch (err) {
@@ -219,7 +219,7 @@ export default function QaStep({
     if (loading || evaluating || !currentQ?.question) return () => {};
 
     const nextQ = questions[currentIdx + 1];
-    if (useGeminiTts && nextQ?.question && !qaOvertime) {
+    if (nextQ?.question && !qaOvertime) {
       void preloadQuestionSpeech(nextQ.question);
     }
 
@@ -228,7 +228,7 @@ export default function QaStep({
       recorder.stopTtsMix();
       startedAt.current = Date.now();
       answerStartedAt.current = 0;
-      qaTimelineRef.current = [{ t: 0, type: 'qa', label: 'กรรมการกำลังถาม' }];
+      qaTimelineRef.current = [{ t: 0, type: 'qa', label: `เริ่มตอบ Q&A ข้อ ${currentIdx + 1}` }];
       lastPacePinAtRef.current = -10;
       lastLookingDownRef.current = 0;
       lastFillerCountRef.current = 0;
@@ -238,6 +238,9 @@ export default function QaStep({
       textRef.current = '';
       setQaPhase('asking');
       recorder.setDeadAirPaused(true);
+
+      await speakQuestion(currentQ.question);
+      if (!active) return;
 
       const audioStream = await recorder.start();
       if (!active) {
@@ -249,19 +252,9 @@ export default function QaStep({
         videoRecorder.start(vision.getStream(), audioStream);
       }
 
-      if (useGeminiTts) setAudioLoading(true);
-      await speakQuestion(currentQ.question, {
-        useGemini: useGeminiTts,
-        onAudioUrl: (url) => recorder.playTtsIntoMix(url),
-      }).finally(() => {
-        if (active) setAudioLoading(false);
-      });
-
-      if (!active) return;
       const ansNow = Date.now();
+      startedAt.current = ansNow;
       answerStartedAt.current = ansNow;
-      const ansT = Number(((ansNow - startedAt.current) / 1000).toFixed(1));
-      qaTimelineRef.current.push({ t: ansT, type: 'qa', label: 'เริ่มตอบคำถาม' });
       recorder.setDeadAirPaused(false);
       setQaPhase('answering');
       speech.start();
@@ -395,28 +388,15 @@ export default function QaStep({
     <div className="mx-auto max-w-2xl px-6 py-12">
       <FloatingCamera vision={vision} live={speech.listening} />
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           onClick={onBack}
           disabled={speech.listening || evaluating}
-          className="text-sm text-muted transition hover:text-ink disabled:opacity-30 cursor-pointer"
+          className="rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-muted transition hover:border-faint hover:text-ink disabled:opacity-30 cursor-pointer"
         >
           ← กลับไปหน้าซ้อม
         </button>
-        <div className="flex items-center gap-3">
-          {onGeminiTtsToggle && (
-            <button
-              type="button"
-              onClick={onGeminiTtsToggle}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
-                useGeminiTts
-                  ? 'border-ink bg-ink text-paper'
-                  : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
-              }`}
-            >
-              เสียง Gemini: {useGeminiTts ? 'เปิด' : 'ปิด'} (-1 Token/ข้อ)
-            </button>
-          )}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => {
@@ -429,7 +409,11 @@ export default function QaStep({
               }
             }}
             disabled={speech.listening || vision.loadingModel}
-            className="text-xs text-muted transition hover:text-ink disabled:opacity-40 cursor-pointer"
+            className={`rounded-xl border px-3 py-2 text-xs font-medium transition disabled:opacity-40 cursor-pointer ${
+              vision.cameraActive
+                ? 'border-ink bg-ink text-paper'
+                : 'border-line bg-white text-ink hover:border-faint'
+            }`}
           >
             {vision.loadingModel
               ? 'กำลังโหลดกล้อง...'
@@ -439,7 +423,7 @@ export default function QaStep({
           </button>
           <button
             onClick={onFinish}
-            className="text-sm text-muted underline-offset-4 hover:text-ink hover:underline cursor-pointer"
+            className="rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-ink transition hover:border-faint cursor-pointer"
           >
             ข้ามไปหน้าสรุปผล
           </button>
@@ -519,11 +503,7 @@ export default function QaStep({
                     speech.stop();
                     recorder.setDeadAirPaused(true);
                   }
-                  if (useGeminiTts) setAudioLoading(true);
-                  await speakQuestion(currentQ.question, {
-                    useGemini: useGeminiTts,
-                    onAudioUrl: recorder.recording ? (url) => recorder.playTtsIntoMix(url) : null,
-                  }).finally(() => setAudioLoading(false));
+                  await speakQuestion(currentQ.question);
                   if (wasAnswering) {
                     recorder.setDeadAirPaused(false);
                     speech.start({ preserveText: true });

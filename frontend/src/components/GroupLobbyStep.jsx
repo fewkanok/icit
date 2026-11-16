@@ -4,8 +4,10 @@ import { createSocket } from '../lib/socket';
 import { filesToSlides, SAMPLE_DECK } from '../lib/slides';
 import DeviceTestCard from './DeviceTestCard';
 import GroupStageView from './GroupStageView';
+import GroupQaView from './GroupQaView';
 import GroupSummaryView from './GroupSummaryView';
 import GroupAssignModal, { getMemberColor } from './GroupAssignModal';
+import GroupSetupModal from './GroupSetupModal';
 
 async function compressSlideForSocket(slide) {
   const src = slide?.src;
@@ -53,11 +55,15 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
   const [selfId, setSelfId] = useState('');
   const [copiedType, setCopiedType] = useState('');
   const [assignOpen, setAssignOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [maxMembersInput, setMaxMembersInput] = useState(6);
   const [slideProgress, setSlideProgress] = useState(null);
+  const [peerVolumes, setPeerVolumes] = useState({});
 
   const socketRef = useRef(null);
   const fileInputRef = useRef(null);
   const stopTestRef = useRef(null);
+  const didAutoFillNameRef = useRef(Boolean(defaultName));
 
   useEffect(() => {
     const socket = createSocket();
@@ -92,10 +98,11 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
   }, []);
 
   useEffect(() => {
-    if (!displayName && defaultName) {
+    if (!didAutoFillNameRef.current && defaultName) {
+      didAutoFillNameRef.current = true;
       setDisplayName(defaultName);
     }
-  }, [defaultName, displayName]);
+  }, [defaultName]);
 
   const handleCreate = (e) => {
     e.preventDefault();
@@ -112,7 +119,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
 
     setBusy(true);
     setError('');
-    socket.emit('group:create', { name: cleanName }, (res) => {
+    socket.emit('group:create', { name: cleanName, maxMembers: maxMembersInput }, (res) => {
       setBusy(false);
       if (!res?.ok) {
         setError(res?.message || 'สร้างห้องไม่สำเร็จ');
@@ -337,6 +344,31 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
               />
             </div>
 
+            {tab === 'create' && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-ink">จำนวนคนสูงสุดในห้อง</label>
+                  <span className="text-[11px] text-muted">สูงสุด 6 คน</span>
+                </div>
+                <div className="mt-1.5 grid grid-cols-5 gap-1.5">
+                  {[2, 3, 4, 5, 6].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setMaxMembersInput(n)}
+                      className={`rounded-lg border py-2 text-xs font-medium transition cursor-pointer ${
+                        maxMembersInput === n
+                          ? 'border-ink bg-ink text-paper'
+                          : 'border-line bg-white text-ink hover:border-faint'
+                      }`}
+                    >
+                      {n} คน
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {tab === 'join' && (
               <div>
                 <label className="block text-xs font-medium text-ink">รหัสห้อง 6 หลัก</label>
@@ -388,6 +420,8 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
         socket={socketRef.current}
         room={room}
         selfId={selfId}
+        peerVolumes={peerVolumes}
+        onPeerVolumesChange={setPeerVolumes}
         onChangeSlide={handleChangeSlide}
         onFinishRehearsal={handleFinishRehearsal}
         onStopRehearsal={handleStopRehearsal}
@@ -396,10 +430,26 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
     );
   }
 
-  // สรุปผลการซ้อมกลุ่ม + รวมคลิป .mp4
+  // ช่วงถาม-ตอบ Q&A แบบกลุ่ม (กดอาสาตอบข้อต่อข้อ)
+  if (room.qaActive && (room.qaQuestions || []).length > 0) {
+    return (
+      <GroupQaView
+        socket={socketRef.current}
+        room={room}
+        selfId={selfId}
+        peerVolumes={peerVolumes}
+        onPeerVolumesChange={setPeerVolumes}
+        onFinishToSummary={handleFinishRehearsal}
+        onLeaveRoom={handleLeaveRoom}
+      />
+    );
+  }
+
+  // สรุปผลการซ้อมกลุ่ม + รวมคลิป .mp4 + AI วิเคราะห์
   if (room.finished && slides.length > 0) {
     return (
       <GroupSummaryView
+        socket={socketRef.current}
         room={room}
         selfId={selfId}
         onBackToLobby={handleStopRehearsal}
@@ -485,11 +535,56 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
           <div className="rounded-2xl border border-line bg-white p-5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
               <h2 className="text-sm font-semibold text-ink">
-                สมาชิกในห้อง ({room.members.length} คน)
+                สมาชิกในห้อง ({room.members.length}/{room.settings?.maxMembers || 6} คน)
               </h2>
               <span className="rounded-full bg-paper px-2.5 py-0.5 text-xs text-muted">
                 พร้อมแล้ว {readyCount}/{room.members.length}
               </span>
+            </div>
+
+            {/* สรุปตั้งค่าห้องซ้อม + ปุ่มตั้งค่าสำหรับหัวหน้า */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-paper/60 px-3.5 py-2.5 text-xs">
+              <div className="text-muted">
+                <span>
+                  คนฟัง:{' '}
+                  <strong className="text-ink">
+                    {room.settings?.audience === 'teacher'
+                      ? 'อาจารย์ / กรรมการ'
+                      : room.settings?.audience === 'executive'
+                        ? 'ผู้บริหาร'
+                        : 'คนทั่วไป'}
+                  </strong>
+                </span>
+                <span className="mx-1.5">·</span>
+                <span>
+                  พรีเซนต์{' '}
+                  <strong className="text-ink">
+                    {room.settings?.presentMins > 0 ? `${room.settings.presentMins} นาที` : 'ไม่จำกัด'}
+                  </strong>
+                </span>
+                <span className="mx-1.5">·</span>
+                <span>
+                  Q&amp;A{' '}
+                  <strong className="text-ink">
+                    {room.settings?.qaMins > 0 ? `${room.settings.qaMins} นาที` : 'ไม่จำกัด'}
+                  </strong>
+                </span>
+                {room.settings?.interruptEnabled && (
+                  <>
+                    <span className="mx-1.5">·</span>
+                    <span className="text-accent font-medium">ถามแทรกเปิด</span>
+                  </>
+                )}
+              </div>
+              {isHost && (
+                <button
+                  type="button"
+                  onClick={() => setSetupOpen(true)}
+                  className="shrink-0 rounded-lg border border-line bg-white px-2.5 py-1 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+                >
+                  ตั้งค่าการซ้อม
+                </button>
+              )}
             </div>
 
             <div className="mt-4 space-y-2.5">
@@ -666,18 +761,22 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
               </div>
             )}
 
-            {isHost && slides.length > 0 && (() => {
+            {isHost && (() => {
+              const hasSlides = slides.length > 0;
               const allReady = room.members.length > 0 && readyCount === room.members.length;
+              const canStart = hasSlides && allReady;
               return (
                 <button
                   type="button"
-                  disabled={!allReady}
+                  disabled={!canStart}
                   onClick={handleStartRehearsal}
                   className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-white shadow-xs transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
                 >
-                  {allReady
-                    ? 'เริ่มซ้อมกลุ่ม (ซิงก์สไลด์ทั้งห้อง)'
-                    : `รอสมาชิกกดพร้อม (${readyCount}/${room.members.length})`}
+                  {!hasSlides
+                    ? 'กรุณาอัปโหลดสไลด์ก่อนเริ่มซ้อม'
+                    : allReady
+                      ? 'เริ่มซ้อมกลุ่ม (ซิงก์สไลด์ทั้งห้อง)'
+                      : `รอสมาชิกกดพร้อม (${readyCount}/${room.members.length})`}
                 </button>
               );
             })()}
@@ -692,6 +791,21 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
           assignments={assignments}
           onSave={handleSaveAssignments}
           onClose={() => setAssignOpen(false)}
+        />
+      )}
+
+      {setupOpen && (
+        <GroupSetupModal
+          settings={room.settings}
+          currentMemberCount={room.members.length}
+          onSave={(nextSettings) => {
+            socketRef.current?.emit('group:set_settings', nextSettings, (res) => {
+              if (!res?.ok) {
+                setError(res?.message || 'บันทึกการตั้งค่าห้องไม่สำเร็จ');
+              }
+            });
+          }}
+          onClose={() => setSetupOpen(false)}
         />
       )}
     </div>

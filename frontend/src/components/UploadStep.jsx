@@ -209,8 +209,6 @@ export default function UploadStep({
           onTimeBudgetChange={onTimeBudgetChange}
           interruptEnabled={interruptEnabled}
           onInterruptToggle={onInterruptToggle}
-          useGeminiTts={useGeminiTts}
-          onGeminiTtsToggle={onGeminiTtsToggle}
           cameraEnabled={cameraEnabled}
           onCameraToggle={onCameraToggle}
           confirmLabel="บันทึก"

@@ -179,6 +179,9 @@ export default function InterruptModal({
           setQaPhase('asking');
           recorder.setDeadAirPaused(true);
 
+          await speakQuestion(data.question);
+          if (!active) return;
+
           const audioStream = await recorder.start();
           if (!active) {
             await recorder.stop();
@@ -188,12 +191,6 @@ export default function InterruptModal({
             vision.startTracking();
             videoRecorder.start(vision.getStream(), audioStream);
           }
-
-          await speakQuestion(data.question, {
-            useGemini: useGeminiTts,
-            onAudioUrl: (url) => recorder.playTtsIntoMix(url),
-          });
-          if (!active) return;
 
           const ansNow = Date.now();
           answerStartedAt.current = ansNow;
@@ -320,10 +317,7 @@ export default function InterruptModal({
                   speech.stop();
                   recorder.setDeadAirPaused(true);
                 }
-                await speakQuestion(question.question, {
-                  useGemini: useGeminiTts,
-                  onAudioUrl: recorder.recording ? (url) => recorder.playTtsIntoMix(url) : null,
-                });
+                await speakQuestion(question.question);
                 if (wasAnswering) {
                   recorder.setDeadAirPaused(false);
                   speech.start({ preserveText: true });

@@ -74,8 +74,6 @@ export default function ModeStep({
           onTimeBudgetChange={onTimeBudgetChange}
           interruptEnabled={interruptEnabled}
           onInterruptToggle={onInterruptToggle}
-          useGeminiTts={useGeminiTts}
-          onGeminiTtsToggle={onGeminiTtsToggle}
           cameraEnabled={cameraEnabled}
           onCameraToggle={onCameraToggle}
           confirmLabel="ถัดไป: เตรียมสไลด์"

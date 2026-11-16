@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState } from 'react';
 import Header from './components/Header';
 import ModeStep from './components/ModeStep';
 import UploadStep from './components/UploadStep';
@@ -13,6 +13,49 @@ import { ConfirmDialogHost, resetConfirmSuppressions } from './components/Confir
 import { analyze } from './lib/metrics';
 import { fetchMe } from './lib/api';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
+
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="mx-auto max-w-lg px-6 py-16">
+          <div className="rounded-2xl border border-accent/30 bg-white p-6 space-y-4">
+            <h2 className="text-base font-semibold text-ink">เกิดข้อผิดพลาดในการแสดงผล</h2>
+            <p className="rounded-lg bg-paper px-3 py-2 font-mono text-xs text-accent break-all">
+              {this.state.error?.message || String(this.state.error)}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => this.setState({ error: null })}
+                className="rounded-xl border border-line bg-white px-4 py-2 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+              >
+                ลองแสดงผลอีกครั้ง
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-paper hover:opacity-90 cursor-pointer"
+              >
+                รีเฟรชหน้า
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const remoteCode =
@@ -32,7 +75,6 @@ export default function App() {
   const [timeBudget, setTimeBudget] = useState({ presentMinutes: 5, qaMinutes: 5 });
   const [results, setResults] = useState({}); // { [slideIndex]: analysis }
   const [interruptEnabled, setInterruptEnabled] = useState(true);
-  const [useGeminiTts, setUseGeminiTts] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [interruptResults, setInterruptResults] = useState({}); // { [slideIndex]: evalObj }
   const [qaResults, setQaResults] = useState([]);
@@ -153,7 +195,8 @@ export default function App() {
         onOpenWallet={() => setWalletOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
       />
-      <main className="flex-1">
+      <AppErrorBoundary>
+        <main className="flex-1">
         {historyOpen ? (
           <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
         ) : (
@@ -168,8 +211,6 @@ export default function App() {
             onTimeBudgetChange={setTimeBudget}
             interruptEnabled={interruptEnabled}
             onInterruptToggle={() => setInterruptEnabled((v) => !v)}
-            useGeminiTts={useGeminiTts}
-            onGeminiTtsToggle={() => setUseGeminiTts((v) => !v)}
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
             onNext={() => setStep('upload')}
@@ -203,8 +244,6 @@ export default function App() {
             onTimeBudgetChange={setTimeBudget}
             interruptEnabled={interruptEnabled}
             onInterruptToggle={() => setInterruptEnabled((v) => !v)}
-            useGeminiTts={useGeminiTts}
-            onGeminiTtsToggle={() => setUseGeminiTts((v) => !v)}
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
             onBackToMode={() => setStep('mode')}
@@ -239,7 +278,6 @@ export default function App() {
             }}
             interruptEnabled={interruptEnabled}
             onInterruptToggle={() => setInterruptEnabled((v) => !v)}
-            useGeminiTts={useGeminiTts}
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
             interruptResults={interruptResults}
@@ -257,8 +295,6 @@ export default function App() {
             deck={deck}
             audience={audience}
             timeBudget={timeBudget}
-            useGeminiTts={useGeminiTts}
-            onGeminiTtsToggle={() => setUseGeminiTts((v) => !v)}
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
             results={results}
@@ -307,7 +343,8 @@ export default function App() {
         )}
           </>
         )}
-      </main>
+        </main>
+      </AppErrorBoundary>
 
       <WalletModal
         open={walletOpen}

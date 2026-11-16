@@ -99,8 +99,8 @@ export function analyzeSummaryWithAi(payload) {
   return postJson('/api/gemini/analyze-summary', payload);
 }
 
-export function synthesizeSpeechWithAi(text) {
-  return postJson('/api/gemini/tts', { text });
+export function synthesizeFreeSpeech(text) {
+  return postJson('/api/tts/free', { text }, 15000);
 }
 
 export async function uploadGroupClip(roomCode, payload) {

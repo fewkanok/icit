@@ -11,6 +11,7 @@ import {
   Post,
   Res,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { GroupGateway } from './group.gateway.js';
@@ -95,6 +96,7 @@ export class GroupController {
     return { ok: true, roomCode, slideIndex };
   }
 
+  @SkipThrottle()
   @Get(':code/clips')
   async listClips(@Param('code') rawCode: string) {
     const roomCode = rawCode.trim().toUpperCase();
@@ -119,6 +121,7 @@ export class GroupController {
     }));
   }
 
+  @SkipThrottle()
   @Get(':code/clips/:slideIndex/media')
   async getClipMedia(
     @Param('code') rawCode: string,

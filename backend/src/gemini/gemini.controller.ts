@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { BadGatewayException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { SupabaseAuthGuard, type AuthUserPayload } from '../auth/auth.guard.js';
 import { TOKEN_COSTS, TokensService } from '../tokens/tokens.service.js';
@@ -49,7 +49,13 @@ export class GeminiController {
       TOKEN_COSTS.SLIDE_CHECK,
       'AI_SLIDE_CHECK',
       'ตรวจความตรงสไลด์ด้วย AI',
-      () => this.geminiService.checkSlide(body),
+      async () => {
+        const res = (await this.geminiService.checkSlide(body)) as { summary?: string };
+        if (!res || typeof res.summary !== 'string' || !res.summary.trim()) {
+          throw new BadGatewayException('AI ไม่สามารถสรุปสไลด์หน้านี้ได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 
@@ -61,7 +67,13 @@ export class GeminiController {
       TOKEN_COSTS.QA_GENERATE,
       'AI_QA',
       'สร้างชุดคำถาม Q&A',
-      () => this.geminiService.generateQa(body),
+      async () => {
+        const res = (await this.geminiService.generateQa(body)) as { questions?: unknown[] };
+        if (!Array.isArray(res?.questions) || res.questions.length === 0) {
+          throw new BadGatewayException('AI ไม่สามารถสร้างชุดคำถามได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 
@@ -73,7 +85,13 @@ export class GeminiController {
       TOKEN_COSTS.INTERRUPT,
       'AI_QA',
       'สร้างคำถามแทรกระหว่างซ้อม',
-      () => this.geminiService.generateInterruptQuestion(body),
+      async () => {
+        const res = (await this.geminiService.generateInterruptQuestion(body)) as { question?: string };
+        if (!res || typeof res.question !== 'string' || !res.question.trim()) {
+          throw new BadGatewayException('AI ไม่สามารถสร้างคำถามแทรกได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 
@@ -85,7 +103,16 @@ export class GeminiController {
       TOKEN_COSTS.QA_EVALUATE,
       'AI_QA',
       'ประเมินคำตอบ Q&A',
-      () => this.geminiService.evaluateQa(body),
+      async () => {
+        const res = (await this.geminiService.evaluateQa(body)) as {
+          directness?: string;
+          feedback?: string;
+        };
+        if (!res || (!res.directness && !res.feedback)) {
+          throw new BadGatewayException('AI ไม่สามารถประเมินคำตอบได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 
@@ -97,7 +124,13 @@ export class GeminiController {
       TOKEN_COSTS.SUMMARY_ANALYZE,
       'AI_SUMMARY',
       'วิเคราะห์สรุปผลการซ้อมทั้งหมด',
-      () => this.geminiService.analyzeSummary(body),
+      async () => {
+        const res = (await this.geminiService.analyzeSummary(body)) as { listenerSummary?: string };
+        if (!res || typeof res.listenerSummary !== 'string' || !res.listenerSummary.trim()) {
+          throw new BadGatewayException('AI ไม่สามารถวิเคราะห์สรุปผลได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 
@@ -110,7 +143,15 @@ export class GeminiController {
       cost,
       'AI_TTS',
       'สร้างเสียงอ่านคำถาม Gemini TTS',
-      () => this.geminiService.synthesizeSpeech(body.text),
+      async () => {
+        const res = (await this.geminiService.synthesizeSpeech(body.text)) as {
+          audioDataUrl?: string;
+        };
+        if (!res || typeof res.audioDataUrl !== 'string' || !res.audioDataUrl) {
+          throw new BadGatewayException('AI ไม่สามารถสร้างเสียงอ่านได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
     );
   }
 }

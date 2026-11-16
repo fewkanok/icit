@@ -1,8 +1,9 @@
-import { synthesizeSpeechWithAi } from './api';
+import { synthesizeFreeSpeech } from './api';
 
-const ttsCache = new Map();
-const ttsPending = new Map();
+const edgeCache = new Map();
+const edgePending = new Map();
 let activeAudio = null;
+let speakSeq = 0;
 
 // เลือกเสียงภาษาไทยที่ธรรมชาติที่สุดที่มีในเบราว์เซอร์ (รองรับ Edge Natural/Online voices ก่อนเสียงระบบทั่วไป)
 function pickBestThaiVoice(voices) {
@@ -18,6 +19,7 @@ function pickBestThaiVoice(voices) {
 }
 
 export function stopSpeaking() {
+  speakSeq += 1;
   window.speechSynthesis?.cancel();
   if (activeAudio) {
     activeAudio.pause();
@@ -90,58 +92,68 @@ function playAudioUrl(url) {
   });
 }
 
-async function fetchGeminiTtsUrl(clean) {
-  if (ttsCache.has(clean)) return ttsCache.get(clean);
-  if (ttsPending.has(clean)) return ttsPending.get(clean);
+async function fetchFreeEdgeTtsUrl(clean) {
+  if (edgeCache.has(clean)) return edgeCache.get(clean);
+  if (edgePending.has(clean)) return edgePending.get(clean);
 
-  const req = synthesizeSpeechWithAi(clean)
+  const req = synthesizeFreeSpeech(clean)
     .then((data) => {
       if (data?.audioDataUrl) {
-        ttsCache.set(clean, data.audioDataUrl);
+        edgeCache.set(clean, data.audioDataUrl);
         return data.audioDataUrl;
       }
       return null;
     })
     .finally(() => {
-      ttsPending.delete(clean);
+      edgePending.delete(clean);
     });
 
-  ttsPending.set(clean, req);
+  edgePending.set(clean, req);
   return req;
+}
+
+export async function getQuestionAudioUrl(text) {
+  const clean = text?.trim();
+  if (!clean) return null;
+  try {
+    return await fetchFreeEdgeTtsUrl(clean);
+  } catch {
+    return null;
+  }
 }
 
 export async function preloadQuestionSpeech(text) {
   const clean = text?.trim();
-  if (!clean || ttsCache.has(clean)) return;
-  try {
-    await fetchGeminiTtsUrl(clean);
-  } catch {
-    // ไม่เป็นไร ค่อย fallback ตอนเล่นจริง
+  if (!clean) return null;
+  return getQuestionAudioUrl(clean);
+}
+
+export async function preloadAllQuestionsSpeech(questions = []) {
+  const list = Array.isArray(questions) ? questions : [];
+  for (const item of list) {
+    const text = typeof item === 'string' ? item : item?.question;
+    if (text?.trim()) {
+      await preloadQuestionSpeech(text);
+    }
   }
 }
 
-export async function speakQuestion(text, { useGemini = false, onAudioUrl = null } = {}) {
+export async function speakQuestion(text) {
   const clean = text?.trim();
   if (!clean) return;
-
-  if (!useGemini) {
-    await speakThai(clean);
-    return;
-  }
+  const seq = ++speakSeq;
 
   try {
-    const url = await fetchGeminiTtsUrl(clean);
-    if (url) {
-      if (typeof onAudioUrl === 'function') {
-        const handled = await onAudioUrl(url);
-        if (handled) return;
-      }
-      await playAudioUrl(url);
+    const edgeUrl = await fetchFreeEdgeTtsUrl(clean);
+    if (seq !== speakSeq) return;
+    if (edgeUrl) {
+      await playAudioUrl(edgeUrl);
       return;
     }
   } catch {
-    // ถ้าโควตาหมดหรือปิด API ให้สลับกลับมาใช้เสียงเบราว์เซอร์อัตโนมัติ
+    // ถ้า Edge-TTS ติดบล็อกหรือเน็ตช้า สลับไปใช้เสียงเบราว์เซอร์อัตโนมัติ
   }
 
+  if (seq !== speakSeq) return;
   await speakThai(clean);
 }

@@ -1,16 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SlideViewer from './SlideViewer';
 import { useGroupRtc } from '../lib/useGroupRtc';
+import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import {
   analyze,
   countFillers,
   countWords,
   formatTime,
+  LIVE_PACE_FAST,
+  LIVE_PACE_SLOW,
   pace,
   PACE_PILL,
   PACE_WARMUP_SEC,
 } from '../lib/metrics';
-import { uploadGroupClip } from '../lib/api';
+import {
+  checkSlideWithAi,
+  evaluateQaAnswer,
+  fetchGroupClips,
+  generateInterruptQuestion,
+  generateQaQuestions,
+  uploadGroupClip,
+} from '../lib/api';
+import {
+  preloadAllQuestionsSpeech,
+  speakQuestion,
+  stopSpeaking,
+} from '../lib/speech';
+import { askConfirm } from './ConfirmModal';
 
 function RemotePeerAudio({ stream, volume = 1 }) {
   const audioRef = useRef(null);
@@ -88,6 +104,8 @@ export default function GroupStageView({
   socket,
   room,
   selfId,
+  peerVolumes: externalPeerVolumes,
+  onPeerVolumesChange,
   onChangeSlide,
   onFinishRehearsal,
   onStopRehearsal,
@@ -104,7 +122,7 @@ export default function GroupStageView({
   const currentOwnerId = assignments[curIdx];
   const currentOwner = currentOwnerId ? memberMap.get(currentOwnerId) : null;
   const isMyTurn = currentOwnerId === selfId;
-  const canControlSlide = isHost || isMyTurn;
+  const canControlSlide = isHost || isMyTurn || Boolean(room.settings?.allowAnySlideControl);
   const isLastSlide = curIdx >= slides.length - 1;
   const canFinish = isHost || (isLastSlide && isMyTurn);
 
@@ -133,8 +151,32 @@ export default function GroupStageView({
     members,
   });
 
-  const [peerVolumes, setPeerVolumes] = useState({});
+  const [localPeerVolumes, setLocalPeerVolumes] = useState({});
+  const peerVolumes = externalPeerVolumes ?? localPeerVolumes;
+  const setPeerVolumes = onPeerVolumesChange ?? setLocalPeerVolumes;
   const [audioMixerOpen, setAudioMixerOpen] = useState(false);
+  const [qaLoading, setQaLoading] = useState(false);
+  const [qaError, setQaError] = useState('');
+  const [stageElapsedSec, setStageElapsedSec] = useState(0);
+  const [interruptLoading, setInterruptLoading] = useState(false);
+  const [intAnswering, setIntAnswering] = useState(false);
+  const [intAnswerText, setIntAnswerText] = useState('');
+  const [intEvaluating, setIntEvaluating] = useState(false);
+  const [intEvalResult, setIntEvalResult] = useState(null);
+  const pendingNextSlideRef = useRef(null);
+  const intRecognitionRef = useRef(null);
+  const intTextRef = useRef('');
+
+  useEffect(() => {
+    const startedAt = room.stageStartedAt;
+    if (!startedAt) return undefined;
+    const sync = () => {
+      setStageElapsedSec(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    sync();
+    const t = setInterval(sync, 500);
+    return () => clearInterval(t);
+  }, [room.stageStartedAt]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -153,6 +195,12 @@ export default function GroupStageView({
     };
   });
 
+  const vision = useFaceLandmarker();
+  const [isDeadAir, setIsDeadAir] = useState(false);
+  const [aiChecking, setAiChecking] = useState(false);
+  const [aiCheckError, setAiCheckError] = useState('');
+  const [aiCheckMap, setAiCheckMap] = useState({});
+
   const dragRef = useRef(null);
   const resizeRef = useRef(null);
   const recorderRef = useRef(null);
@@ -162,6 +210,23 @@ export default function GroupStageView({
   const transcriptRef = useRef('');
   const recognitionRef = useRef(null);
   const stoppingPromiseRef = useRef(null);
+  const pendingQaQuestionsRef = useRef(null);
+  const timelineEventsRef = useRef([]);
+  const lastPacePinRef = useRef(-10);
+  const lastFillerRef = useRef(0);
+  const lastEyePinRef = useRef(-10);
+  const silenceStartRef = useRef(null);
+  const inDeadAirRef = useRef(false);
+  const deadAirCountRef = useRef(0);
+
+  // เชื่อม FaceLandmarker กับ WebRTC localStream เมื่อเป็นคิวของเราและเปิดกล้องอยู่
+  useEffect(() => {
+    if (isSelfSpeaker && localStream && camEnabled && localStream.getVideoTracks().length > 0) {
+      void vision.attachExternalStream(localStream);
+    } else if (vision.cameraActive) {
+      vision.stopCamera();
+    }
+  }, [isSelfSpeaker, localStream, camEnabled]);
 
   // จับเวลาและระดับเสียงระหว่างอัด
   useEffect(() => {
@@ -170,8 +235,51 @@ export default function GroupStageView({
       return;
     }
     const timer = setInterval(() => {
-      setElapsedSec(Math.max(0, Math.round((Date.now() - recStartRef.current) / 1000)));
-    }, 250);
+      const sec = Math.max(0, Math.round((Date.now() - recStartRef.current) / 1000));
+      setElapsedSec(sec);
+      const txt = transcriptRef.current.trim();
+      const words = countWords(txt);
+      const wpm = sec > 3 ? Math.round(words / (sec / 60)) : 0;
+      const fillersNow = countFillers(txt).total;
+
+      if (sec >= PACE_WARMUP_SEC && sec - lastPacePinRef.current >= 8) {
+        if (wpm >= LIVE_PACE_FAST) {
+          lastPacePinRef.current = sec;
+          timelineEventsRef.current.push({
+            t: sec,
+            type: 'pace_fast',
+            label: `พูดเร็วไป (${wpm} คำ/นาที)`,
+          });
+        } else if (wpm > 0 && wpm <= LIVE_PACE_SLOW) {
+          lastPacePinRef.current = sec;
+          timelineEventsRef.current.push({
+            t: sec,
+            type: 'pace_slow',
+            label: `พูดช้าไป (${wpm} คำ/นาที)`,
+          });
+        }
+      }
+      if (fillersNow > lastFillerRef.current) {
+        lastFillerRef.current = fillersNow;
+        timelineEventsRef.current.push({
+          t: sec,
+          type: 'filler',
+          label: `พบคำติดปาก (รวม ${fillersNow} ครั้ง)`,
+        });
+      }
+
+      if (
+        (vision.currentStatus === 'looking_down' || vision.currentStatus === 'looking_away') &&
+        sec - lastEyePinRef.current >= 5
+      ) {
+        lastEyePinRef.current = sec;
+        timelineEventsRef.current.push({
+          t: sec,
+          type: 'eye',
+          label: vision.currentStatus === 'looking_down' ? 'ก้มอ่านโพย' : 'สายตาหลุดกล้อง',
+        });
+      }
+    }, 500);
 
     let rafId = 0;
     let audioCtx = null;
@@ -190,6 +298,29 @@ export default function GroupStageView({
           for (let i = 0; i < data.length; i++) sum += data[i];
           const avg = sum / (data.length * 255);
           setAudioLevel(Math.min(1, avg * 2.8));
+
+          // ตรวจจับ Dead Air (เงียบค้าง >= 2.5 วินาที)
+          const now = Date.now();
+          if (avg < 0.018) {
+            if (!silenceStartRef.current) silenceStartRef.current = now;
+            if (now - silenceStartRef.current >= 2500 && !inDeadAirRef.current) {
+              inDeadAirRef.current = true;
+              setIsDeadAir(true);
+              deadAirCountRef.current += 1;
+              const sec = Math.max(0, Math.round((now - recStartRef.current) / 1000));
+              timelineEventsRef.current.push({
+                t: sec,
+                type: 'deadair',
+                label: 'เงียบค้าง 2.5+ วิ',
+              });
+            }
+          } else {
+            silenceStartRef.current = null;
+            if (inDeadAirRef.current) {
+              inDeadAirRef.current = false;
+              setIsDeadAir(false);
+            }
+          }
           rafId = requestAnimationFrame(tick);
         };
         tick();
@@ -247,8 +378,22 @@ export default function GroupStageView({
       recSlideRef.current = null;
       chunksRef.current = [];
       setIsRecording(false);
+      setIsDeadAir(false);
+      const visionStats = vision.stopTracking();
 
-      const analysis = analyze(spokenText, durationSec);
+      const analysis = {
+        ...analyze(spokenText, durationSec),
+        deadAir: { count: deadAirCountRef.current },
+        vision: camEnabled
+          ? {
+              cameraUsed: true,
+              eyeContactPct: visionStats.eyeContactPct,
+              lookingDownCount: visionStats.lookingDownCount,
+              lookingDownSec: visionStats.lookingDownSec,
+            }
+          : { cameraUsed: false },
+        timelineEvents: [...timelineEventsRef.current],
+      };
       setSlideResults((prev) => ({
         ...prev,
         [slideIdx]: {
@@ -308,9 +453,18 @@ export default function GroupStageView({
       recSlideRef.current = curIdx;
       recStartRef.current = Date.now();
       transcriptRef.current = '';
+      timelineEventsRef.current = [];
+      lastPacePinRef.current = -10;
+      lastFillerRef.current = 0;
+      lastEyePinRef.current = -10;
+      silenceStartRef.current = null;
+      inDeadAirRef.current = false;
+      deadAirCountRef.current = 0;
+      setIsDeadAir(false);
       setElapsedSec(0);
       setLiveTranscript('');
       setIsRecording(true);
+      vision.startTracking();
 
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (SpeechRec) {
@@ -405,17 +559,194 @@ export default function GroupStageView({
   );
 
   const speakerVideoRef = useRef(null);
+  const setSpeakerVideoEl = useCallback(
+    (node) => {
+      speakerVideoRef.current = node;
+      if (isSelfSpeaker) {
+        vision.setVideoRef(node);
+      }
+    },
+    [isSelfSpeaker, vision.setVideoRef],
+  );
   useEffect(() => {
-    if (speakerVideoRef.current && !camCollapsed) {
-      speakerVideoRef.current.srcObject = hasSpeakerVideo ? speakerStream : null;
+    const el = speakerVideoRef.current;
+    if (el && !camCollapsed && !camHidden) {
+      const target = hasSpeakerVideo ? speakerStream : null;
+      if (el.srcObject !== target) {
+        el.srcObject = target;
+      }
+      if (target) {
+        el.play().catch(() => {});
+      }
     }
-  }, [hasSpeakerVideo, speakerStream, camCollapsed]);
+  }, [hasSpeakerVideo, speakerStream, camCollapsed, camHidden, isSelfSpeaker]);
 
   const handleSlideNav = async (nextIdx) => {
+    if (interruptLoading || room.activeInterrupt) return;
     if (isRecording) {
       await stopAndUploadCurrent();
     }
+
+    const shouldInterrupt =
+      nextIdx > curIdx &&
+      Boolean(room.settings?.interruptEnabled) &&
+      Array.isArray(room.interruptSlides) &&
+      room.interruptSlides.includes(curIdx) &&
+      !room.interruptResults?.[curIdx];
+
+    if (shouldInterrupt) {
+      setInterruptLoading(true);
+      pendingNextSlideRef.current = nextIdx;
+      try {
+        const curSlide = slides[curIdx] || {};
+        const slideText =
+          curSlide.text ||
+          (Array.isArray(curSlide.points) ? curSlide.points.join(', ') : curSlide.title || '');
+        const res = await generateInterruptQuestion({
+          deckName: room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม',
+          audience: room.settings?.audience || 'general',
+          slideNumber: curIdx + 1,
+          slideTitle: curSlide.title || `สไลด์หน้า ${curIdx + 1}`,
+          slideText,
+          slideImageBase64: curSlide.src || undefined,
+          transcript: slideResults[curIdx]?.transcript || '',
+        });
+        if (res?.question) {
+          socket?.emit('group:interrupt_open', {
+            slideIndex: curIdx,
+            question: res.question,
+            speakerId: currentOwnerId || room.hostId,
+            speakerName: currentOwner?.name || speaker?.name || 'ผู้พูด',
+          });
+          setInterruptLoading(false);
+          return;
+        }
+      } catch (err) {
+        setQaError(err?.message || 'ไม่สามารถสร้างคำถามแทรกได้ (ข้ามไปสไลด์ถัดไป)');
+      } finally {
+        setInterruptLoading(false);
+      }
+      pendingNextSlideRef.current = null;
+    }
+
     onChangeSlide(nextIdx);
+  };
+
+  // อ่านคำถามแทรกออกเสียงอัตโนมัติเมื่อมีคำถามแทรกขึ้นมา
+  useEffect(() => {
+    if (room.activeInterrupt?.question) {
+      setIntAnswerText(room.activeInterrupt.answerTranscript || '');
+      intTextRef.current = room.activeInterrupt.answerTranscript || '';
+      setIntEvalResult(room.activeInterrupt.evaluation || null);
+      speakQuestion(room.activeInterrupt.question);
+    } else {
+      stopSpeaking();
+      if (intRecognitionRef.current) {
+        try {
+          intRecognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+        intRecognitionRef.current = null;
+      }
+      setIntAnswering(false);
+    }
+  }, [room.activeInterrupt?.slideIndex, room.activeInterrupt?.question]);
+
+  const toggleIntRecording = () => {
+    if (intAnswering) {
+      if (intRecognitionRef.current) {
+        try {
+          intRecognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+        intRecognitionRef.current = null;
+      }
+      setIntAnswering(false);
+      return;
+    }
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    try {
+      const sr = new SpeechRec();
+      sr.lang = 'th-TH';
+      sr.continuous = true;
+      sr.interimResults = true;
+      let finalized = '';
+      sr.onresult = (ev) => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const t = ev.results[i][0]?.transcript || '';
+          if (ev.results[i].isFinal) finalized += `${t} `;
+          else interim += t;
+        }
+        const full = `${finalized}${interim}`.trim();
+        intTextRef.current = full;
+        setIntAnswerText(full);
+      };
+      sr.onerror = () => setIntAnswering(false);
+      sr.onend = () => setIntAnswering(false);
+      sr.start();
+      intRecognitionRef.current = sr;
+      setIntAnswering(true);
+    } catch {
+      setIntAnswering(false);
+    }
+  };
+
+  const handleEvaluateInterrupt = async () => {
+    if (!room.activeInterrupt || intEvaluating) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อให้ AI ประเมินคำตอบถามแทรกข้อนี้',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
+    setIntEvaluating(true);
+    try {
+      const sIdx = room.activeInterrupt.slideIndex;
+      const curSlide = slides[sIdx] || {};
+      const evaluation = await evaluateQaAnswer({
+        audience: room.settings?.audience || 'general',
+        question: room.activeInterrupt.question,
+        slideContext: `${curSlide.title || ''}: ${curSlide.text || ''}`.slice(0, 800),
+        answerTranscript: intAnswerText.trim(),
+        timelineEvents: [],
+      });
+      setIntEvalResult(evaluation);
+      socket?.emit('group:interrupt_save', {
+        slideIndex: sIdx,
+        answerTranscript: intAnswerText.trim(),
+        evaluation,
+        close: false,
+      });
+    } catch (err) {
+      setQaError(err?.message || 'ตรวจคำตอบถามแทรกไม่สำเร็จ');
+    } finally {
+      setIntEvaluating(false);
+    }
+  };
+
+  const handleCloseInterrupt = () => {
+    if (intAnswering) toggleIntRecording();
+    const sIdx = room.activeInterrupt?.slideIndex;
+    if (typeof sIdx === 'number') {
+      socket?.emit('group:interrupt_save', {
+        slideIndex: sIdx,
+        answerTranscript: intAnswerText.trim(),
+        evaluation: intEvalResult,
+        close: true,
+      });
+    } else {
+      socket?.emit('group:interrupt_close');
+    }
+    const nextIdx = pendingNextSlideRef.current;
+    pendingNextSlideRef.current = null;
+    if (typeof nextIdx === 'number') {
+      onChangeSlide(nextIdx);
+    }
   };
 
   const handleFinishClick = async () => {
@@ -423,9 +754,123 @@ export default function GroupStageView({
     onFinishRehearsal();
   };
 
+  const handleStartQaClick = async () => {
+    if (qaLoading) return;
+    if (!socket?.connected) {
+      setQaError('การเชื่อมต่อห้องขาดหาย กรุณารอสักครู่แล้วลองใหม่ (ยังไม่หัก Token)');
+      return;
+    }
+
+    // ถ้ามีคำถามที่สร้างสำเร็จค้างไว้จากการกดครั้งก่อน (เช่น socket ส่งไม่ผ่าน) ให้ใช้ซ้ำโดยไม่หัก Token ซ้ำ
+    if (Array.isArray(pendingQaQuestionsRef.current) && pendingQaQuestionsRef.current.length > 0) {
+      setQaError('');
+      socket.emit('group:start_qa', { questions: pendingQaQuestionsRef.current }, (res) => {
+        if (res?.ok) {
+          pendingQaQuestionsRef.current = null;
+        } else {
+          setQaError(res?.message || 'เปิดช่วง Q&A ไม่สำเร็จ');
+        }
+      });
+      return;
+    }
+
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อสร้างชุดคำถามช่วงถาม-ตอบ (Q&A) สำหรับทั้งกลุ่ม',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
+
+    setQaError('');
+    setQaLoading(true);
+    try {
+      await stopAndUploadCurrent();
+      const clips = await fetchGroupClips(room.code).catch(() => []);
+      const clipBySlide = new Map(clips.map((c) => [c.slideIndex, c]));
+      const slideSummaries = slides.map((s, idx) => {
+        const c = clipBySlide.get(idx);
+        const owner = assignments[idx] ? memberMap.get(assignments[idx]) : null;
+        const speakerName = c?.memberName || owner?.name || '';
+        const rawTranscript = c?.analysis?.transcript || slideResults[idx]?.transcript || '';
+        const transcript = rawTranscript && speakerName ? `[ผู้พูด: ${speakerName}] ${rawTranscript}` : rawTranscript;
+        return {
+          index: idx,
+          title: s.title || `สไลด์หน้า ${idx + 1}`,
+          text: s.text || (Array.isArray(s.points) ? s.points.join(', ') : ''),
+          transcript,
+        };
+      });
+
+      const qaMins = Number(room.settings?.qaMins ?? 5);
+      const questionCount =
+        qaMins <= 0 ? 3 : Math.min(8, Math.max(2, Math.round((qaMins * 60) / 50)));
+      const data = await generateQaQuestions({
+        deckName: room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม',
+        audience: room.settings?.audience || 'general',
+        questionCount,
+        slides: slideSummaries,
+      });
+
+      const rawQs = Array.isArray(data?.questions) ? data.questions : [];
+      if (rawQs.length === 0) {
+        throw new Error('AI ไม่สามารถสร้างคำถามได้ กรุณาลองใหม่อีกครั้ง');
+      }
+
+      // เตรียมเสียงอ่านคำถาม Edge-TTS ให้พร้อมบนเซิร์ฟเวอร์ก่อนเข้าสู่หน้าถาม-ตอบ
+      await preloadAllQuestionsSpeech(rawQs);
+
+      pendingQaQuestionsRef.current = rawQs;
+      socket.emit('group:start_qa', { questions: rawQs }, (res) => {
+        if (res?.ok) {
+          pendingQaQuestionsRef.current = null;
+        } else {
+          setQaError(res?.message || 'เปิดช่วง Q&A ไม่สำเร็จ (คำถามถูกบันทึกไว้แล้ว กดลองอีกครั้งได้โดยไม่เสีย Token)');
+        }
+      });
+    } catch (err) {
+      setQaError(err?.message || 'สร้างคำถาม Q&A ไม่สำเร็จ');
+    } finally {
+      setQaLoading(false);
+    }
+  };
+
   const uploadedSet = new Set(room.uploadedSlides || []);
   const slideResult = slideResults[curIdx] || null;
   const isSlideUploaded = uploadedSet.has(curIdx);
+  const aiCheck = aiCheckMap[curIdx] || null;
+
+  const handleCheckSlide = async () => {
+    if (!slideResult || aiChecking) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อตรวจสอบความครบถ้วนและแนะนำจุดปรับปรุงของสไลด์หน้านี้',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
+
+    setAiChecking(true);
+    setAiCheckError('');
+    try {
+      const s = slides[curIdx] || {};
+      const slideText = s.text || (Array.isArray(s.points) ? s.points.join(', ') : s.title || '');
+      const data = await checkSlideWithAi({
+        deckName: room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม',
+        audience: room.settings?.audience || 'general',
+        slideNumber: curIdx + 1,
+        slideTitle: s.title || `สไลด์หน้า ${curIdx + 1}`,
+        slideText,
+        slideImageBase64: s.src || undefined,
+        transcript: slideResult.transcript || '',
+      });
+      setAiCheckMap((prev) => ({ ...prev, [curIdx]: data }));
+    } catch (err) {
+      setAiCheckError(err?.message || 'ตรวจสไลด์ด้วย AI ไม่สำเร็จ');
+    } finally {
+      setAiChecking(false);
+    }
+  };
 
   const liveWords = useMemo(() => countWords(liveTranscript), [liveTranscript]);
   const liveWpm = elapsedSec > 3 ? Math.round(liveWords / (elapsedSec / 60)) : 0;
@@ -445,6 +890,25 @@ export default function GroupStageView({
           <span className="rounded-md border border-line bg-white px-2.5 py-1 font-mono text-xs font-semibold text-ink">
             ห้อง {room.code}
           </span>
+          {Number(room.settings?.presentMins || 0) > 0 && (() => {
+            const remaining = room.settings.presentMins * 60 - stageElapsedSec;
+            const overtime = remaining < 0;
+            return (
+              <span
+                className={`rounded-full border px-2.5 py-0.5 font-mono text-[11px] tabular-nums ${
+                  overtime
+                    ? 'border-accent bg-accent/10 text-accent font-medium'
+                    : remaining <= 60
+                      ? 'border-slow bg-slow/10 text-slow font-medium'
+                      : 'border-line bg-white text-ink'
+                }`}
+              >
+                {overtime
+                  ? `เกินเวลา +${formatTime(Math.abs(remaining))}`
+                  : `เหลือเวลา ${formatTime(remaining)}`}
+              </span>
+            );
+          })()}
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-muted">
               คิวหน้า {curIdx + 1}/{slides.length}:
@@ -466,6 +930,24 @@ export default function GroupStageView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {isHost && (
+            <button
+              type="button"
+              onClick={() =>
+                socket?.emit('group:set_settings', {
+                  ...room.settings,
+                  allowAnySlideControl: !room.settings?.allowAnySlideControl,
+                })
+              }
+              className={`rounded-xl border px-3 py-2 text-xs font-medium transition cursor-pointer ${
+                room.settings?.allowAnySlideControl
+                  ? 'border-ink bg-ink text-paper'
+                  : 'border-line bg-white text-ink hover:border-faint'
+              }`}
+            >
+              เพื่อนช่วยเลื่อนสไลด์: {room.settings?.allowAnySlideControl ? 'เปิด' : 'ปิด'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setAudioMixerOpen((v) => !v)}
@@ -597,6 +1079,9 @@ export default function GroupStageView({
       {mediaError && (
         <p className="mt-4 rounded-xl bg-accent/10 px-4 py-2.5 text-xs text-accent">{mediaError}</p>
       )}
+      {qaError && (
+        <p className="mt-4 rounded-xl bg-accent/10 px-4 py-2.5 text-xs text-accent">{qaError}</p>
+      )}
 
       {/* Grid 2 คอลัมน์เหมือน RehearsalStep */}
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_360px]">
@@ -656,14 +1141,24 @@ export default function GroupStageView({
                   </button>
                 ) : (
                   canFinish && (
-                    <button
-                      type="button"
-                      onClick={handleFinishClick}
-                      disabled={uploadingCount > 0}
-                      className="rounded-lg bg-ink px-3.5 py-1.5 text-xs font-semibold text-paper transition hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                    >
-                      จบการนำเสนอ
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleFinishClick}
+                        disabled={uploadingCount > 0 || qaLoading}
+                        className="rounded-lg border border-line bg-white px-3.5 py-1.5 text-xs font-semibold text-ink transition hover:border-faint disabled:opacity-50 cursor-pointer"
+                      >
+                        จบและดูสรุปผลเลย (ฟรี)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStartQaClick}
+                        disabled={uploadingCount > 0 || qaLoading}
+                        className="rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
+                      >
+                        {qaLoading ? 'กำลังสร้างคำถาม Q&A...' : 'เข้าช่วงถาม-ตอบ Q&A (-1 Token)'}
+                      </button>
+                    </div>
                   )
                 )}
               </div>
@@ -730,7 +1225,14 @@ export default function GroupStageView({
             </div>
 
             {isRecording && (
-              <LivePace wpm={liveWpm} fillers={liveFillers} elapsed={elapsedSec} />
+              <div className="flex flex-wrap items-center gap-2">
+                <LivePace wpm={liveWpm} fillers={liveFillers} elapsed={elapsedSec} />
+                {isDeadAir && (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-medium text-amber-800">
+                    เงียบค้าง!
+                  </span>
+                )}
+              </div>
             )}
 
             {/* กล่องคำพูดที่ถอดความได้ */}
@@ -785,6 +1287,61 @@ export default function GroupStageView({
                     {slideResult.fillers?.total || 0} ครั้ง
                   </p>
                 </div>
+                {slideResult.vision?.cameraUsed && (
+                  <div>
+                    <span className="text-muted">สบตากล้อง</span>
+                    <p className="mt-0.5 font-mono font-semibold text-ink">
+                      {slideResult.vision.eyeContactPct ?? 100}%
+                    </p>
+                  </div>
+                )}
+                {slideResult.deadAir?.count > 0 && (
+                  <div>
+                    <span className="text-muted">เงียบค้าง</span>
+                    <p className="mt-0.5 font-mono font-semibold text-accent">
+                      {slideResult.deadAir.count} ครั้ง
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ปุ่มให้ AI เช็กหน้านี้ (-1 Token) เหมือนซ้อมเดี่ยว */}
+            {!isRecording && slideResult && isSelfSpeaker && (
+              <div className="space-y-2">
+                {aiCheck ? (
+                  <div className="rounded-lg border border-line bg-paper p-3.5 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-ink">ผลตรวจหน้านี้</span>
+                      <span className="font-mono font-medium text-ink">
+                        {aiCheck.coverage || 'สรุปจาก AI'}
+                      </span>
+                    </div>
+                    {aiCheck.summary && (
+                      <p className="text-muted leading-relaxed">{aiCheck.summary}</p>
+                    )}
+                    {aiCheck.missedPoints?.length > 0 && (
+                      <p className="text-accent leading-relaxed">
+                        ยังไม่ได้พูด: {aiCheck.missedPoints.join(', ')}
+                      </p>
+                    )}
+                    {aiCheck.suggestion && (
+                      <p className="text-ink leading-relaxed border-t border-line/70 pt-2">
+                        คำแนะนำ: {aiCheck.suggestion}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCheckSlide}
+                    disabled={aiChecking}
+                    className="w-full rounded-lg border border-line bg-paper py-2 text-xs font-medium text-ink transition hover:border-faint disabled:opacity-50 cursor-pointer"
+                  >
+                    {aiChecking ? 'กำลังวิเคราะห์หน้านี้...' : 'ให้ AI เช็กหน้านี้ (-1 Token)'}
+                  </button>
+                )}
+                {aiCheckError && <p className="text-xs text-accent">{aiCheckError}</p>}
               </div>
             )}
 
@@ -924,7 +1481,7 @@ export default function GroupStageView({
               <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
                 {hasSpeakerVideo ? (
                   <video
-                    ref={speakerVideoRef}
+                    ref={setSpeakerVideoEl}
                     autoPlay
                     playsInline
                     muted
@@ -942,16 +1499,66 @@ export default function GroupStageView({
                 )}
 
                 <div className="absolute top-2 right-2 flex items-center gap-1.5 rounded-full bg-ink/80 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-xs">
-                  <span
-                    className={`size-1.5 rounded-full ${
-                      isRecording ? 'bg-red-500 animate-pulse' : speakerMicOn ? 'bg-emerald-400' : 'bg-zinc-400'
-                    }`}
-                  />
-                  <span>
-                    {isRecording ? 'กำลังอัดคลิป' : speakerMicOn ? 'ไมค์เปิดอยู่' : 'ปิดไมค์'}
-                  </span>
+                  {isSelfSpeaker && vision.cameraActive && vision.currentStatus !== 'off' ? (
+                    <>
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          vision.currentStatus === 'eye_contact'
+                            ? 'bg-emerald-400 animate-pulse'
+                            : vision.currentStatus === 'looking_down'
+                              ? 'bg-amber-400 animate-pulse'
+                              : 'bg-white/70'
+                        }`}
+                      />
+                      <span>
+                        {vision.currentStatus === 'eye_contact'
+                          ? 'สบตาคนฟัง'
+                          : vision.currentStatus === 'looking_down'
+                            ? 'ก้มอ่านโพย!'
+                            : vision.currentStatus === 'looking_away'
+                              ? 'หันมองสไลด์'
+                              : 'ไม่พบใบหน้า'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          isRecording ? 'bg-red-500 animate-pulse' : speakerMicOn ? 'bg-emerald-400' : 'bg-zinc-400'
+                        }`}
+                      />
+                      <span>
+                        {isRecording ? 'กำลังอัดคลิป' : speakerMicOn ? 'ไมค์เปิดอยู่' : 'ปิดไมค์'}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
+
+              {isSelfSpeaker && vision.cameraActive && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-muted">Eye Contact (การสบตา)</span>
+                    <span className="font-mono font-medium text-ink">{vision.eyeContactPct}%</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+                    <div
+                      className={`h-full transition-all duration-200 ${
+                        vision.eyeContactPct >= 70
+                          ? 'bg-ok'
+                          : vision.eyeContactPct >= 45
+                            ? 'bg-slow'
+                            : 'bg-accent'
+                      }`}
+                      style={{ width: `${vision.eyeContactPct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-faint font-mono">
+                    <span>ก้ม/เงย: {vision.poseAngles.pitch}°</span>
+                    <span>หันซ้าย/ขวา: {vision.poseAngles.yaw}°</span>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-1.5 pr-3">
                 <button
@@ -1009,6 +1616,119 @@ export default function GroupStageView({
           )}
         </div>
       )}
+
+      {/* หน้าต่างถามแทรกระหว่างซ้อม (ซิงก์ทั้งห้องเหมือน InterruptModal) */}
+      {room.activeInterrupt && (() => {
+        const activeInt = room.activeInterrupt;
+        const canAnswerInt = activeInt.speakerId === selfId || isHost;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/45 p-4 backdrop-blur-xs">
+            <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-white">
+                    คำถามแทรก · หน้า {activeInt.slideIndex + 1}
+                  </span>
+                  <span className="rounded-full border border-line bg-paper px-2.5 py-0.5 text-[11px] font-medium text-ink">
+                    ผู้ตอบ: {activeInt.speakerName}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => speakQuestion(activeInt.question)}
+                  className="rounded-md border border-line bg-paper px-2.5 py-1 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+                >
+                  ฟังคำถาม
+                </button>
+              </div>
+
+              <p className="text-base font-semibold leading-relaxed text-ink">
+                {activeInt.question}
+              </p>
+
+              {canAnswerInt ? (
+                <div className="space-y-3">
+                  <textarea
+                    rows={3}
+                    value={intAnswerText}
+                    onChange={(e) => {
+                      intTextRef.current = e.target.value;
+                      setIntAnswerText(e.target.value);
+                    }}
+                    placeholder="กดอัดเสียงตอบคำถามแทรก หรือพิมพ์คำตอบ..."
+                    className="w-full rounded-xl border border-line bg-paper/50 p-3 text-sm text-ink focus:border-ink focus:bg-white focus:outline-none"
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleIntRecording}
+                      className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition cursor-pointer ${
+                        intAnswering
+                          ? 'bg-accent text-white'
+                          : 'border border-line bg-white text-ink hover:border-faint'
+                      }`}
+                    >
+                      {intAnswering ? 'หยุดอัดคำตอบ' : 'อัดเสียงตอบคำถาม'}
+                    </button>
+
+                    {!intEvalResult && intAnswerText.trim() && (
+                      <button
+                        type="button"
+                        disabled={intEvaluating || intAnswering}
+                        onClick={handleEvaluateInterrupt}
+                        className="rounded-lg bg-ink px-3.5 py-2 text-xs font-semibold text-paper hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                      >
+                        {intEvaluating ? 'กำลังตรวจ...' : 'ให้ AI ตรวจคำตอบ (-1 Token)'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-line bg-paper/60 p-4 text-xs text-muted space-y-2">
+                  <p>กำลังรอ <strong className="text-ink">{activeInt.speakerName}</strong> ตอบคำถามแทรก...</p>
+                  {activeInt.answerTranscript && (
+                    <p className="rounded-lg bg-white p-3 text-sm text-ink">
+                      &quot;{activeInt.answerTranscript}&quot;
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {(intEvalResult || activeInt.evaluation) && (() => {
+                const ev = intEvalResult || activeInt.evaluation;
+                return (
+                  <div className="rounded-xl border border-line bg-paper/70 p-3.5 text-xs space-y-1.5">
+                    {ev.directness && (
+                      <span className="inline-block rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent">
+                        {ev.directness}
+                      </span>
+                    )}
+                    {ev.feedback && <p className="text-ink leading-relaxed">{ev.feedback}</p>}
+                    {ev.betterAnswer && (
+                      <p className="text-muted leading-relaxed">
+                        <strong className="text-ink">แนวทางตอบ:</strong> {ev.betterAnswer}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {canAnswerInt && (
+                <div className="flex justify-end border-t border-line pt-3">
+                  <button
+                    type="button"
+                    onClick={handleCloseInterrupt}
+                    className="rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 cursor-pointer"
+                  >
+                    ดำเนินการต่อ →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

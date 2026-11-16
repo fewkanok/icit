@@ -220,24 +220,6 @@ export default function RoomSetupModal({
                   </button>
                 </div>
               )}
-
-              {onGeminiTtsToggle && (
-                <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
-                  <div>
-                    <p className="text-xs font-medium text-ink">เสียงอ่านคำถาม Gemini TTS (-1 Token/ข้อ)</p>
-                    <p className="text-[11px] text-muted">เปิดเมื่อต้องการเสียงธรรมชาติ (ปิดไว้ใช้เสียงเครื่องฟรี)</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onGeminiTtsToggle}
-                    className={`rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
-                      useGeminiTts ? 'bg-ink text-paper' : 'border border-line bg-white text-muted'
-                    }`}
-                  >
-                    {useGeminiTts ? 'เปิด' : 'ปิด'}
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}

@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchGroupClips, deleteGroupClips } from '../lib/api';
+import {
+  analyzeSummaryWithAi,
+  deleteGroupClips,
+  evaluateQaAnswer,
+  fetchGroupClips,
+} from '../lib/api';
 import { analyze, formatTime, pace, PACE_PILL, PACE_TEXT } from '../lib/metrics';
 import { mergeAudioTracks, mergeVideoTracks } from '../lib/mediaMerge';
+import { askConfirm } from './ConfirmModal';
 import SummaryCharts from './SummaryCharts';
 import TimelineReplayPlayer from './TimelineReplayPlayer';
 import VideoLayoutModal from './VideoLayoutModal';
 
 export default function GroupSummaryView({
+  socket,
   room,
   selfId,
   onBackToLobby,
@@ -14,19 +21,29 @@ export default function GroupSummaryView({
 }) {
   const isHost = room.hostId === selfId;
   const slides = room.slides || [];
+  const qaQuestions = room.qaQuestions || [];
+  const qaAnswers = room.qaAnswers || {};
   const uploadedKey = (room.uploadedSlides || []).join(',');
 
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'slides' | 'qa'
   const [selectedMember, setSelectedMember] = useState('all'); // 'all' | memberName
   const [expandedSlides, setExpandedSlides] = useState({});
   const [openReplayIdx, setOpenReplayIdx] = useState(null);
+  const [openQaReplayIdx, setOpenQaReplayIdx] = useState(null);
   const [showMoreMap, setShowMoreMap] = useState({});
   const [editingIdx, setEditingIdx] = useState(null);
   const [editText, setEditText] = useState('');
   const [downloadingAudioIdx, setDownloadingAudioIdx] = useState(null);
   const audioRefs = useRef({});
+
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [localAiSummary, setLocalAiSummary] = useState(null);
+  const [qaEvalLoading, setQaEvalLoading] = useState({});
+  const [localQaEvals, setLocalQaEvals] = useState({});
 
   const [layoutModalOpen, setLayoutModalOpen] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -63,13 +80,27 @@ export default function GroupSummaryView({
     };
   }, [mergedVideoUrl]);
 
-  const clipMap = useMemo(() => new Map(clips.map((c) => [c.slideIndex, c])), [clips]);
+  const slideClips = useMemo(() => clips.filter((c) => c.slideIndex < 1000), [clips]);
+  const clipMap = useMemo(() => new Map(slideClips.map((c) => [c.slideIndex, c])), [slideClips]);
+  const qaClipMap = useMemo(() => {
+    const m = new Map();
+    clips.forEach((c) => {
+      if (c.slideIndex >= 1000) m.set(c.slideIndex - 1000, c);
+    });
+    return m;
+  }, [clips]);
+
+  const aiSummary = room.aiSummary || localAiSummary;
+  const qaEvaluations = useMemo(
+    () => ({ ...(room.qaEvaluations || {}), ...localQaEvals }),
+    [room.qaEvaluations, localQaEvals],
+  );
 
   // รายชื่อสมาชิกที่มีข้อมูลคลิป (สำหรับแถบสลับดูรวม/แยกคน)
   const memberTabs = useMemo(() => {
     const names = [];
     const seen = new Set();
-    clips.forEach((c) => {
+    slideClips.forEach((c) => {
       const name = c.memberName || 'สมาชิก';
       if (!seen.has(name)) {
         seen.add(name);
@@ -77,7 +108,7 @@ export default function GroupSummaryView({
       }
     });
     return names;
-  }, [clips]);
+  }, [slideClips]);
 
   // กรองรายการสไลด์ตามมุมมองที่เลือก (ภาพรวมทั้งกลุ่ม หรือ แยกตามชื่อ)
   const visibleRows = useMemo(() => {
@@ -128,14 +159,68 @@ export default function GroupSummaryView({
     return out;
   }, [visibleRows]);
 
-  const videoClips = useMemo(
-    () => visibleClips.filter((c) => c.mimeType?.startsWith('video/') || !c.mimeType?.startsWith('audio/')),
-    [visibleClips],
+  const visibleQaClips = useMemo(() => {
+    return Array.from(qaClipMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([qIdx, clip]) => ({ qIdx, clip }))
+      .filter(({ clip }) => {
+        if (selectedMember === 'all') return true;
+        return (clip.memberName || 'สมาชิก') === selectedMember;
+      });
+  }, [qaClipMap, selectedMember]);
+
+  const allMergedClips = useMemo(
+    () => [...visibleClips, ...visibleQaClips.map((x) => x.clip)],
+    [visibleClips, visibleQaClips],
   );
 
-  // รวมเสียงอัตโนมัติตามมุมมองที่เลือก (ทั้งกลุ่มหรือรายคน)
+  const videoClips = useMemo(
+    () =>
+      allMergedClips.filter(
+        (c) => c.mimeType?.startsWith('video/') || !c.mimeType?.startsWith('audio/'),
+      ),
+    [allMergedClips],
+  );
+
+  const mergedTimelineMeta = useMemo(() => {
+    const events = [];
+    let offset = 0;
+    for (const c of videoClips) {
+      const dur = Math.max(1, Number(c.analysis?.duration || 0));
+      if (c.slideIndex >= 1000) {
+        const qIdx = c.slideIndex - 1000;
+        const ans = qaAnswers[qIdx];
+        const responder = ans?.responderName || c.memberName || 'สมาชิก';
+        events.push({
+          t: offset,
+          type: 'qa',
+          label: `เริ่มตอบ Q&A ข้อ ${qIdx + 1} (${responder} ตอบ)`,
+        });
+      } else {
+        events.push({
+          t: offset,
+          type: 'slide',
+          slideIndex: c.slideIndex,
+          label: `เริ่มสไลด์ ${c.slideIndex + 1} (${c.memberName || 'สมาชิก'})`,
+        });
+      }
+      const clipEvents = Array.isArray(c.analysis?.timelineEvents) ? c.analysis.timelineEvents : [];
+      for (const ev of clipEvents) {
+        if (!ev || typeof ev.t !== 'number') continue;
+        events.push({
+          t: offset + ev.t,
+          type: ev.type || 'pace_fast',
+          label: `${c.memberName || 'สมาชิก'}: ${ev.label}`,
+        });
+      }
+      offset += dur;
+    }
+    return { events, totalDuration: offset };
+  }, [videoClips, qaQuestions, qaAnswers]);
+
+  // รวมเสียงอัตโนมัติตามมุมมองที่เลือก (ทั้งกลุ่มหรือรายคน + รวมช่วง Q&A)
   useEffect(() => {
-    const urls = visibleClips.map((c) => c.mediaUrl).filter(Boolean);
+    const urls = allMergedClips.map((c) => c.mediaUrl).filter(Boolean);
     if (urls.length === 0) {
       setMergedAudioUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -167,7 +252,7 @@ export default function GroupSummaryView({
     return () => {
       cancelled = true;
     };
-  }, [visibleClips]);
+  }, [allMergedClips]);
 
   const handleMergeAll = async (customLayout) => {
     if (videoClips.length === 0 || merging) return;
@@ -176,12 +261,26 @@ export default function GroupSummaryView({
     setMergeProgress(0);
     setError('');
     try {
-      const items = videoClips.map((c) => ({
-        videoUrl: c.mediaUrl,
-        slide: slides[c.slideIndex] || { title: `สไลด์หน้า ${c.slideIndex + 1}` },
-        qaQuestion: '',
-        duration: c.analysis?.duration || 0,
-      }));
+      const items = videoClips.map((c) => {
+        if (c.slideIndex >= 1000) {
+          const qIdx = c.slideIndex - 1000;
+          const q = qaQuestions[qIdx];
+          const ans = qaAnswers[qIdx];
+          const responder = ans?.responderName || c.memberName || 'สมาชิก';
+          return {
+            videoUrl: c.mediaUrl,
+            slide: slides[0] || { title: `ช่วงถาม-ตอบ Q&A ข้อ ${qIdx + 1}` },
+            qaQuestion: `คำถามที่ ${qIdx + 1} (${responder} ตอบ): ${q?.question || ''}`,
+            duration: c.analysis?.duration || 0,
+          };
+        }
+        return {
+          videoUrl: c.mediaUrl,
+          slide: slides[c.slideIndex] || { title: `สไลด์หน้า ${c.slideIndex + 1}` },
+          qaQuestion: '',
+          duration: c.analysis?.duration || 0,
+        };
+      });
       const merged = await mergeVideoTracks(
         items,
         (info) => {
@@ -213,6 +312,93 @@ export default function GroupSummaryView({
   const handleLeaveAndClean = () => {
     // ปล่อยให้ Backend ลบคลิปอัตโนมัติเมื่อสมาชิกคนสุดท้ายออกจากห้องแล้วเท่านั้น
     onLeaveRoom();
+  };
+
+  const runGroupAiAnalysis = async () => {
+    if (aiLoading) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 2 Tokens',
+      message: 'ระบบจะใช้ 2 Tokens เพื่อวิเคราะห์สรุปผลทั้งกลุ่มและความตรงตามสไลด์ (ทุกคนในห้องจะเห็นผลพร้อมกัน)',
+      confirmText: 'ใช้ 2 Tokens',
+    });
+    if (!ok) return;
+
+    setAiLoading(true);
+    setAiError('');
+    try {
+      const payload = {
+        deckName: room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม',
+        audience: room.settings?.audience || 'general',
+        slides: slides.map((s, idx) => {
+          const c = clipMap.get(idx);
+          const a = c?.analysis || {};
+          const speakerPrefix = c?.memberName ? `[ผู้พูด: ${c.memberName}] ` : '';
+          return {
+            index: idx,
+            title: s.title || `สไลด์หน้า ${idx + 1}`,
+            text: s.text || (Array.isArray(s.points) ? s.points.join(', ') : ''),
+            transcript: a.transcript ? `${speakerPrefix}${a.transcript}` : '',
+            wpm: a.wpm || 0,
+            fillersCount: a.fillers?.total || 0,
+            deadAirCount: a.deadAir?.count || 0,
+            eyeContactPct: a.vision?.cameraUsed ? a.vision.eyeContactPct : null,
+          };
+        }),
+        qaResults: qaQuestions.map((q, qIdx) => ({
+          question: q.question,
+          answerTranscript: qaAnswers[qIdx]?.transcript
+            ? `[ผู้ตอบ: ${qaAnswers[qIdx].responderName}] ${qaAnswers[qIdx].transcript}`
+            : '',
+        })),
+        timelineEvents: mergedTimelineMeta.events,
+      };
+      const data = await analyzeSummaryWithAi(payload);
+      setLocalAiSummary(data);
+      socket?.emit('group:set_ai_summary', { aiSummary: data });
+    } catch (err) {
+      setAiError(err?.message || 'ไม่สามารถวิเคราะห์ด้วย AI ได้');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleEvaluateGroupQa = async (qIdx) => {
+    const q = qaQuestions[qIdx];
+    const ans = qaAnswers[qIdx];
+    if (!q || qaEvalLoading[qIdx]) return;
+    const ok = await askConfirm({
+      key: 'token-spend',
+      title: 'ยืนยันการใช้ 1 Token',
+      message: 'ระบบจะใช้ 1 Token เพื่อให้ AI ประเมินคำตอบข้อนี้ (ทุกคนในห้องจะเห็นผลพร้อมกัน)',
+      confirmText: 'ใช้ 1 Token',
+    });
+    if (!ok) return;
+
+    setQaEvalLoading((prev) => ({ ...prev, [qIdx]: true }));
+    try {
+      const slideContext = slides
+        .slice(0, 5)
+        .map((s) => `${s.title || ''}: ${s.text || ''}`)
+        .join(' | ')
+        .slice(0, 1200);
+      const qaClip = qaClipMap.get(qIdx);
+      const evaluation = await evaluateQaAnswer({
+        audience: room.settings?.audience || 'general',
+        question: q.question,
+        slideContext,
+        answerTranscript: ans?.transcript || '',
+        timelineEvents: Array.isArray(qaClip?.analysis?.timelineEvents)
+          ? qaClip.analysis.timelineEvents
+          : [],
+      });
+      setLocalQaEvals((prev) => ({ ...prev, [qIdx]: evaluation }));
+      socket?.emit('group:set_qa_eval', { index: qIdx, evaluation });
+    } catch (err) {
+      setError(err?.message || 'ประเมินคำตอบไม่สำเร็จ');
+    } finally {
+      setQaEvalLoading((prev) => ({ ...prev, [qIdx]: false }));
+    }
   };
 
   const avgPace = pace(totals.wpm);
@@ -251,43 +437,86 @@ export default function GroupSummaryView({
         </div>
       </div>
 
-      {/* แถบเลือกดู: ภาพรวมทั้งกลุ่ม / แยกรายคน */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-white p-3">
-        <span className="px-2 text-xs font-medium text-muted">มุมมอง:</span>
+      {/* แถบแท็บสลับหมวดสไตล์เดียวกับซ้อมเดี่ยว */}
+      <div className="flex flex-wrap gap-2 border-b border-line pb-3">
         <button
           type="button"
-          onClick={() => setSelectedMember('all')}
-          className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition cursor-pointer ${
-            selectedMember === 'all'
+          onClick={() => setActiveTab('overview')}
+          className={`rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+            activeTab === 'overview'
               ? 'bg-ink text-paper'
-              : 'bg-paper text-ink hover:bg-line/50'
+              : 'border border-line bg-white text-muted hover:text-ink'
           }`}
         >
-          ภาพรวมทั้งกลุ่ม ({clips.length} หน้า)
+          ภาพรวม &amp; คลิปรวม
         </button>
-        {memberTabs.map((name) => {
-          const count = clips.filter((c) => (c.memberName || 'สมาชิก') === name).length;
-          return (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setSelectedMember(name)}
-              className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition cursor-pointer ${
-                selectedMember === name
-                  ? 'bg-accent text-white'
-                  : 'bg-paper text-ink hover:bg-line/50'
-              }`}
-            >
-              {name} ({count} หน้า)
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => setActiveTab('slides')}
+          className={`rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+            activeTab === 'slides'
+              ? 'bg-ink text-paper'
+              : 'border border-line bg-white text-muted hover:text-ink'
+          }`}
+        >
+          รายสไลด์ ({slides.length})
+        </button>
+        {qaQuestions.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('qa')}
+            className={`rounded-lg px-3.5 py-2 text-xs font-medium transition cursor-pointer ${
+              activeTab === 'qa'
+                ? 'bg-ink text-paper'
+                : 'border border-line bg-white text-muted hover:text-ink'
+            }`}
+          >
+            ถาม-ตอบ ({qaQuestions.length})
+          </button>
+        )}
       </div>
+
+      {/* แถบเลือกดู: ภาพรวมทั้งกลุ่ม / แยกรายคน */}
+      {activeTab !== 'qa' && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-white p-3">
+          <span className="px-2 text-xs font-medium text-muted">มุมมอง:</span>
+          <button
+            type="button"
+            onClick={() => setSelectedMember('all')}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition cursor-pointer ${
+              selectedMember === 'all'
+                ? 'bg-ink text-paper'
+                : 'bg-paper text-ink hover:bg-line/50'
+            }`}
+          >
+            ภาพรวมทั้งกลุ่ม ({slideClips.length} หน้า)
+          </button>
+          {memberTabs.map((name) => {
+            const count = slideClips.filter((c) => (c.memberName || 'สมาชิก') === name).length;
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setSelectedMember(name)}
+                className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition cursor-pointer ${
+                  selectedMember === name
+                    ? 'bg-accent text-white'
+                    : 'bg-paper text-ink hover:bg-line/50'
+                }`}
+              >
+                {name} ({count} หน้า)
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {error && (
         <p className="rounded-xl bg-accent/10 px-4 py-2.5 text-xs text-accent">{error}</p>
       )}
 
+      {activeTab === 'overview' && (
+        <>
       {/* การ์ดสถิติหลัก 4 ช่อง (สไตล์เดียวกับซ้อมเดี่ยว) */}
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-line bg-white p-4">
@@ -432,16 +661,124 @@ export default function GroupSummaryView({
           )}
 
           {mergedVideoUrl && !merging && (
-            <video
-              controls
-              src={mergedVideoUrl}
-              className="aspect-video w-full rounded-lg border border-line bg-black"
+            <TimelineReplayPlayer
+              videoUrl={mergedVideoUrl}
+              audioUrl={mergedVideoUrl}
+              duration={mergedTimelineMeta.totalDuration}
+              events={mergedTimelineMeta.events}
+              slides={slides}
+              isMergedExport
             />
           )}
         </div>
       )}
 
+      {/* กล่องวิเคราะห์สรุปผลด้วย AI (สไตล์เดียวกับซ้อมเดี่ยว) */}
+      {!aiLoading && !aiSummary && !aiError && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-ink">อยากรู้ว่าคนฟังเข้าใจแค่ไหน</p>
+            <p className="mt-0.5 text-xs text-muted">
+              ให้ AI ประเมินความตรงตามสไลด์ ความเข้าใจง่าย และแนะนำประโยคที่กระชับขึ้น (ทุกคนในห้องเห็นผลพร้อมกัน)
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={runGroupAiAnalysis}
+            className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-accent/90 cursor-pointer"
+          >
+            วิเคราะห์สรุปผลด้วย AI (-2 Tokens)
+          </button>
+        </div>
+      )}
+
+      {aiLoading && (
+        <div className="rounded-xl border border-line bg-white px-5 py-5 text-sm text-muted">
+          กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟังทั้งกลุ่ม...
+        </div>
+      )}
+
+      {!aiLoading && aiError && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4">
+          <p className="text-xs text-accent">{aiError}</p>
+          <button
+            type="button"
+            onClick={runGroupAiAnalysis}
+            className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+          >
+            ลองวิเคราะห์อีกครั้ง (-2 Tokens)
+          </button>
+        </div>
+      )}
+
+      {!aiLoading && aiSummary && (
+        <div className="rounded-xl border border-line bg-white p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+            <div>
+              <p className="text-sm font-semibold text-ink">มุมมองคนฟังและความตรงตามสไลด์</p>
+              <p className="text-xs text-muted">ประเมินจากการเทียบเนื้อหาสไลด์กับคำพูดของสมาชิกทั้งกลุ่ม</p>
+            </div>
+            <button
+              type="button"
+              onClick={runGroupAiAnalysis}
+              className="rounded-md border border-line px-2.5 py-1 text-xs text-muted hover:text-ink hover:border-faint cursor-pointer"
+            >
+              วิเคราะห์ใหม่ (-2 Tokens)
+            </button>
+          </div>
+
+          {aiSummary.listenerSummary && (
+            <div className="rounded-lg bg-paper p-3.5 text-sm leading-relaxed text-ink">
+              <p className="mb-1 text-xs font-medium text-muted">สิ่งที่คนฟังจับใจความได้</p>
+              <p>{aiSummary.listenerSummary}</p>
+            </div>
+          )}
+
+          {Array.isArray(aiSummary.timelineAdvice) && aiSummary.timelineAdvice.length > 0 && (
+            <div className="rounded-lg border border-line bg-paper/60 p-3.5 space-y-2 text-xs">
+              <p className="font-medium text-ink">คำแนะนำตามช่วงเวลา (Timeline)</p>
+              <div className="space-y-1.5">
+                {aiSummary.timelineAdvice.map((item, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="shrink-0 rounded bg-ink px-1.5 py-0.5 font-mono text-[11px] text-paper">
+                      {item.timeLabel || formatTime(item.t || 0)}
+                    </span>
+                    <span className="text-muted leading-relaxed">{item.comment}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2 text-xs">
+            {aiSummary.topStrengths?.length > 0 && (
+              <div className="rounded-lg border border-ok/20 bg-ok/5 p-4 space-y-1.5">
+                <p className="font-semibold text-ok">จุดเด่น</p>
+                <ul className="list-disc space-y-1.5 pl-4 leading-relaxed text-ink/90">
+                  {aiSummary.topStrengths.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {aiSummary.topImprovements?.length > 0 && (
+              <div className="rounded-lg border border-accent/20 bg-accent/5 p-4 space-y-1.5">
+                <p className="font-semibold text-accent">สิ่งที่ควรปรับ</p>
+                <ul className="list-disc space-y-1.5 pl-4 leading-relaxed text-ink/90">
+                  {aiSummary.topImprovements.map((item, idx) => (
+                    <li key={idx}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+        </>
+      )}
+
       {/* รายละเอียดรายสไลด์ (พับ-กาง + TimelineReplayPlayer เหมือนซ้อมเดี่ยว) */}
+      {activeTab === 'slides' && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-ink">
@@ -519,6 +856,20 @@ export default function GroupSummaryView({
                           ติดปาก {a.fillers.total}
                         </span>
                       )}
+                      {a.deadAir?.count > 0 && (
+                        <span className="rounded-md bg-slow/10 px-2 py-0.5 text-slow font-sans font-medium">
+                          เดดแอร์ {a.deadAir.count}
+                        </span>
+                      )}
+                      {a.vision?.cameraUsed && (
+                        <span
+                          className={`rounded-md bg-paper px-2 py-0.5 font-sans ${
+                            a.vision.eyeContactPct >= 70 ? 'text-ok' : 'text-slow'
+                          }`}
+                        >
+                          สบตา {a.vision.eyeContactPct}%
+                        </span>
+                      )}
                       <span className="ml-1 font-sans text-xs text-faint">
                         {isOpen ? 'ซ่อน' : 'ดูเพิ่ม'}
                       </span>
@@ -577,12 +928,63 @@ export default function GroupSummaryView({
                           </div>
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-line bg-white p-3.5 text-sm leading-relaxed text-ink/90">
-                          {a.transcript ? (
-                            <p>"{a.transcript}"</p>
-                          ) : (
-                            <p className="text-faint italic">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
-                          )}
+                        <div className="space-y-2.5">
+                          <div className="rounded-lg border border-line bg-white p-3.5 text-sm leading-relaxed text-ink/90">
+                            {a.transcript ? (
+                              <p>&quot;{a.transcript}&quot;</p>
+                            ) : (
+                              <p className="text-faint italic">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
+                            )}
+                          </div>
+                          {(() => {
+                            const aiSlide = aiSummary?.slides?.find((x) => x.index === idx);
+                            if (!aiSlide || (!aiSlide.missed?.length && !aiSlide.polishedScript)) {
+                              return null;
+                            }
+                            return (
+                              <div className="rounded-lg border border-line bg-white p-3.5 text-xs space-y-2">
+                                {aiSlide.missed?.length > 0 && (
+                                  <div>
+                                    <p className="font-semibold text-accent">ประเด็นที่ยังไม่ได้พูด</p>
+                                    <p className="mt-0.5 text-muted leading-relaxed">
+                                      {aiSlide.missed.join(' · ')}
+                                    </p>
+                                  </div>
+                                )}
+                                {aiSlide.polishedScript && (
+                                  <div>
+                                    <p className="font-semibold text-ink">ตัวอย่างประโยคที่กระชับขึ้น</p>
+                                    <p className="mt-0.5 text-ink/90 leading-relaxed">
+                                      {aiSlide.polishedScript}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {(() => {
+                            const intRes = room.interruptResults?.[idx];
+                            if (!intRes) return null;
+                            return (
+                              <div className="rounded-lg border border-accent/25 bg-accent/5 p-3.5 text-xs space-y-1.5">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-accent">คำถามแทรกหน้านี้</span>
+                                  {intRes.evaluation?.directness && (
+                                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-ink border border-line">
+                                      {intRes.evaluation.directness}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-medium text-ink">{intRes.question}</p>
+                                {intRes.answerTranscript && (
+                                  <p className="text-muted">คำตอบ: &quot;{intRes.answerTranscript}&quot;</p>
+                                )}
+                                {intRes.evaluation?.feedback && (
+                                  <p className="text-ink/90">{intRes.evaluation.feedback}</p>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
@@ -700,7 +1102,15 @@ export default function GroupSummaryView({
                         videoUrl={clip.mimeType?.startsWith('audio/') ? null : clip.mediaUrl}
                         audioUrl={clip.mediaUrl}
                         duration={a.duration || 0}
-                        events={[]}
+                        events={[
+                          {
+                            t: 0,
+                            type: 'slide',
+                            slideIndex: idx,
+                            label: `เริ่มสไลด์ ${idx + 1} (${clip.memberName || 'สมาชิก'})`,
+                          },
+                          ...(Array.isArray(a.timelineEvents) ? a.timelineEvents : []),
+                        ]}
                         slides={slides}
                         slideIndex={idx}
                       />
@@ -712,6 +1122,130 @@ export default function GroupSummaryView({
           })
         )}
       </div>
+      )}
+
+      {/* แท็บช่วงถาม-ตอบ Q&A (สไตล์เดียวกับซ้อมเดี่ยว) */}
+      {activeTab === 'qa' && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">ช่วงถาม-ตอบ ({qaQuestions.length} ข้อ)</h3>
+            <p className="text-[11px] text-muted">
+              ดูคำตอบของสมาชิกที่อาสาตอบแต่ละข้อ และกดให้ AI ช่วยตรวจความตรงประเด็นได้
+            </p>
+          </div>
+
+          {qaQuestions.map((q, qIdx) => {
+            const ans = qaAnswers[qIdx] || null;
+            const qaClip = qaClipMap.get(qIdx) || null;
+            const ev = qaEvaluations[qIdx] || null;
+            const busyEval = Boolean(qaEvalLoading[qIdx]);
+            return (
+              <div key={q.id || qIdx} className="rounded-xl border border-line bg-white p-5 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-paper px-2 py-0.5 font-mono text-[11px] font-semibold text-ink">
+                        คำถามที่ {qIdx + 1}
+                      </span>
+                      {ans?.responderName ? (
+                        <span className="rounded-full border border-line bg-paper px-2.5 py-0.5 text-[11px] font-medium text-ink">
+                          ผู้ตอบ: {ans.responderName}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-paper px-2.5 py-0.5 text-[11px] text-faint">
+                          ยังไม่มีผู้ตอบ
+                        </span>
+                      )}
+                      {ev?.directness && (
+                        <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent">
+                          {ev.directness}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-ink">{q.question}</p>
+                  </div>
+
+                  {!ev && (
+                    <button
+                      type="button"
+                      disabled={busyEval}
+                      onClick={() => void handleEvaluateGroupQa(qIdx)}
+                      className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
+                    >
+                      {busyEval ? 'กำลังตรวจ...' : 'ให้ AI ตรวจคำตอบ (-1 Token)'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-line bg-paper/50 p-3.5 text-sm leading-relaxed text-ink">
+                  {ans?.transcript ? (
+                    <p>&quot;{ans.transcript}&quot;</p>
+                  ) : (
+                    <p className="text-faint italic">ยังไม่มีข้อความคำตอบในข้อนี้</p>
+                  )}
+                </div>
+
+                {qaClip?.mediaUrl && (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <audio controls src={qaClip.mediaUrl} className="h-8 max-w-64" />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenQaReplayIdx(openQaReplayIdx === qIdx ? null : qIdx)
+                        }
+                        className="rounded-md bg-ink px-3 py-1.5 font-medium text-white hover:opacity-90 cursor-pointer"
+                      >
+                        {openQaReplayIdx === qIdx ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
+                      </button>
+                    </div>
+                    {openQaReplayIdx === qIdx && (
+                      <TimelineReplayPlayer
+                        videoUrl={qaClip.mimeType?.startsWith('audio/') ? null : qaClip.mediaUrl}
+                        audioUrl={qaClip.mediaUrl}
+                        duration={ans?.duration || 0}
+                        events={[
+                          {
+                            t: 0,
+                            type: 'qa',
+                            label: `เริ่มตอบ Q&A ข้อ ${qIdx + 1} (${ans?.responderName || qaClip.memberName || 'สมาชิก'} ตอบ)`,
+                          },
+                          ...(Array.isArray(qaClip.analysis?.timelineEvents)
+                            ? qaClip.analysis.timelineEvents
+                            : []),
+                        ]}
+                        slides={slides}
+                        qaQuestion={q.question}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {ev && (
+                  <div className="rounded-lg border border-line bg-paper/70 p-3.5 text-xs space-y-1.5">
+                    {ev.feedback && (
+                      <p className="text-ink leading-relaxed">
+                        <strong className="font-semibold">คำติชม:</strong> {ev.feedback}
+                      </p>
+                    )}
+                    {ev.betterAnswer && (
+                      <p className="text-muted leading-relaxed">
+                        <strong className="font-semibold text-ink">แนวทางตอบที่ดีขึ้น:</strong>{' '}
+                        {ev.betterAnswer}
+                      </p>
+                    )}
+                    {ev.timelineNote && (
+                      <p className="text-accent leading-relaxed">
+                        <strong className="font-semibold">จังหวะระหว่างตอบ:</strong> {ev.timelineNote}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <VideoLayoutModal
         open={layoutModalOpen}

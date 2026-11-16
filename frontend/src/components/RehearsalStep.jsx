@@ -587,7 +587,6 @@ export default function RehearsalStep({
             slideImageBase64={slide?.src || slide?.url}
             transcript={results[activeInterruptSlide]?.transcript || ''}
             audience={audience}
-            useGeminiTts={useGeminiTts}
             vision={vision}
             onSpeakQuestion={(q) => {
               if (stageMode && roomCode) {
