@@ -79,6 +79,11 @@ export default function App() {
       ? new URLSearchParams(window.location.search).get('lmDeck')
       : null;
 
+  const initialZParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('z')
+      : null;
+
   const initialHasSimpleSlides =
     typeof window !== 'undefined'
       ? Boolean(
@@ -90,7 +95,7 @@ export default function App() {
   const [step, setStep] = useState(
     initialGroupCode
       ? 'group'
-      : initialPresetCode || initialLmDeckParam || initialHasSimpleSlides
+      : initialPresetCode || initialLmDeckParam || initialZParam || initialHasSimpleSlides
         ? 'upload'
         : 'mode',
   );
@@ -131,6 +136,133 @@ export default function App() {
     }
 
     const autoStart = params.get('autoStart') === '1';
+
+    if (initialZParam) {
+      const decodeZ = async (zStr) => {
+        const b64 = zStr.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = b64 + '==='.slice((b64.length + 3) % 4);
+        const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+        try {
+          return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        } catch {
+          const ds = new DecompressionStream('deflate-raw');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          const outBuf = await new Response(ds.readable).arrayBuffer();
+          return JSON.parse(new TextDecoder('utf-8').decode(outBuf));
+        }
+      };
+
+      decodeZ(initialZParam)
+        .then((data) => {
+          const topic = String(data?.n || 'สไลด์จาก LangMind AI').trim();
+          const rawSlides = Array.isArray(data?.sl) && data.sl.length > 0
+            ? data.sl.map((s, idx) => ({
+                title: s.t || s.title || `สไลด์หน้าที่ ${idx + 1}`,
+                points: Array.isArray(s.p || s.points) ? (s.p || s.points) : [topic],
+                script: s.s || s.script || '',
+              }))
+            : [
+                {
+                  title: `ที่มาและความสำคัญ (${topic})`,
+                  points: [
+                    'สภาพปัญหาปัจจุบันและเหตุผลที่ต้องพัฒนาโครงงานนี้',
+                    'ช่องว่างของระบบเดิมและโอกาสในการนำเทคโนโลยีมาช่วย',
+                    'ประโยชน์ที่คาดว่าจะได้รับจากโครงงาน',
+                  ],
+                  script: `สวัสดีคณะกรรมการทุกท่านครับ วันนี้พวกเราขอนำเสนอโครงงานเรื่อง ${topic} โดยเริ่มต้นจากปัญหาสำคัญที่เราพบในปัจจุบัน และเหตุผลที่ต้องพัฒนาโซลูชันนี้ขึ้นมาแก้ไขครับ`,
+                },
+                {
+                  title: 'วัตถุประสงค์และขอบเขตของโครงงาน',
+                  points: [
+                    'วัตถุประสงค์หลักของการพัฒนาและวิจัย',
+                    'ขอบเขตด้านระบบ กลุ่มเป้าหมาย และข้อมูลที่ใช้ทดสอบ',
+                    'ตัวชี้วัดความสำเร็จของโครงงาน',
+                  ],
+                  script: `สำหรับวัตถุประสงค์หลักของโครงงาน ${topic} คือการพัฒนาระบบที่ตอบโจทย์ผู้ใช้งานจริงภายใต้ขอบเขตและตัวชี้วัดที่เราได้กำหนดไว้อย่างชัดเจนครับ`,
+                },
+                {
+                  title: 'สถาปัตยกรรมระบบและวิธีการดำเนินงาน',
+                  points: [
+                    'ขั้นตอนการทำงานตั้งแต่รับข้อมูลจนถึงการประมวลผล',
+                    'เครื่องมือ เทคโนโลยี และทฤษฎีที่เลือกใช้',
+                    'การออกแบบส่วนติดต่อผู้ใช้และการเชื่อมต่อระบบ',
+                  ],
+                  script: `ในส่วนของวิธีการดำเนินงาน เราได้ออกแบบสถาปัตยกรรมระบบให้ทำงานเป็นลำดับขั้น ตั้งแต่การรับข้อมูล ประมวลผล ไปจนถึงการแสดงผลลัพธ์อย่างมีประสิทธิภาพครับ`,
+                },
+                {
+                  title: 'ผลการทดลองและการประเมินประสิทธิภาพ',
+                  points: [
+                    'ผลการทดสอบการทำงานจริงเทียบกับเกณฑ์ที่ตั้งไว้',
+                    'การวิเคราะห์ความแม่นยำและความเร็วในการประมวลผล',
+                    'สรุปความพึงพอใจและผลกระทบจากการใช้งาน',
+                  ],
+                  script: `จากผลการทดลองและประเมินประสิทธิภาพ พบว่าระบบสามารถทำงานได้ตรงตามวัตถุประสงค์ที่ตั้งไว้ และช่วยลดเวลาการทำงานลงได้อย่างชัดเจนครับ`,
+                },
+                {
+                  title: 'สรุปผล ข้อจำกัด และแนวทางการพัฒนาต่อยอด',
+                  points: [
+                    'สรุปผลสำเร็จตามวัตถุประสงค์ของโครงงาน',
+                    'ข้อจำกัดที่พบระหว่างการพัฒนาและทดสอบจริง',
+                    'แนวทางการขยายผลและพัฒนาต่อยอดในอนาคต',
+                  ],
+                  script: `โดยสรุป โครงงาน ${topic} สามารถตอบโจทย์ปัญหาที่ตั้งไว้ได้ครบถ้วน และพร้อมนำไปพัฒนาต่อยอดขยายผลในอนาคต ขอบคุณคณะกรรมการทุกท่านครับ พร้อมรับฟังคำถามครับ`,
+                },
+              ];
+
+          const normalizedSlides = rawSlides.map((s, idx) => ({
+            id: idx + 1,
+            title: s.title,
+            points: s.points,
+            script: s.script,
+            text: [s.title, s.points.join(' | '), s.script].filter(Boolean).join('\n'),
+          }));
+
+          setDeck({ name: topic, slides: normalizedSlides });
+          if (['general', 'teacher', 'executive'].includes(data?.a)) {
+            setAudience(data.a);
+          }
+          setRehearsalMode(
+            data?.m === 'full' || data?.m === 'continuous' ? 'continuous' : 'per_slide',
+          );
+          setTimeBudget({
+            presentMinutes: Number(data?.pm ?? 5),
+            qaMinutes: Number(data?.qm ?? 5),
+          });
+          setRehearsalIndex(0);
+          setStep(autoStart ? 'rehearsal' : 'upload');
+
+          if (data?.pdfId) {
+            fetch(`/api/line-pdf?id=${encodeURIComponent(data.pdfId)}`)
+              .then(async (res) => {
+                if (!res.ok) return;
+                const blob = await res.blob();
+                const pdfFile = new File([blob], `${topic}.pdf`, { type: 'application/pdf' });
+                const pdfSlides = await filesToSlides([pdfFile]);
+                const merged = pdfSlides.map((s, idx) => {
+                  const sc = normalizedSlides[idx];
+                  if (!sc) return s;
+                  return {
+                    ...s,
+                    title: sc.title || s.title,
+                    points: sc.points || s.points,
+                    script: sc.script,
+                    text: [sc.title, s.text, sc.script ? `บทพูด: ${sc.script}` : '']
+                      .filter(Boolean)
+                      .join('\n'),
+                  };
+                });
+                setDeck({ name: topic, slides: merged });
+              })
+              .catch(() => {});
+          }
+        })
+        .catch((err) => {
+          console.warn('[LangMind Z Param] ถอดรหัสลิงก์สไลด์ไม่สำเร็จ:', err);
+        });
+      return;
+    }
 
     if (initialPresetCode) {
       fetchLangmindPreset(initialPresetCode)

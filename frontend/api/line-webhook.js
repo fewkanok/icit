@@ -1,3 +1,5 @@
+import zlib from 'node:zlib';
+
 const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
 const DEFAULT_CHANNEL_ACCESS_TOKEN =
@@ -17,13 +19,6 @@ function readRawBody(req) {
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
-}
-
-function toUrlSafeSlug(text) {
-  return String(text || '')
-    .replace(/[|:,?&=#%+]/g, ' ')
-    .trim()
-    .replace(/\s+/g, '_');
 }
 
 async function extractPdfPagesText(pdfBuffer) {
@@ -49,7 +44,7 @@ async function extractPdfPagesText(pdfBuffer) {
         .trim();
       pages.push({
         page: i,
-        text: text.slice(0, 260),
+        text: text.slice(0, 220),
       });
     }
     return { numPages: doc.numPages, pages };
@@ -62,69 +57,74 @@ async function extractPdfPagesText(pdfBuffer) {
 function buildSlidesFromPdfOrTopic(cleanTitle, pages) {
   const validPages = pages.filter((p) => p.text && p.text.length > 3);
   if (validPages.length > 0) {
-    return validPages.map((p, idx) => {
-      const sentences = p.text
-        .split(/(?<=[.!?])\s+|\s{2,}/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const title = (sentences[0] || `สไลด์หน้าที่ ${idx + 1}`).slice(0, 60);
-      const points =
-        sentences.slice(1, 4).length > 0
-          ? sentences.slice(1, 4).map((s) => s.slice(0, 70))
-          : [p.text.slice(0, 80)];
-      const script = `สำหรับสไลด์หน้าที่ ${idx + 1} หัวข้อ ${title} ประเด็นสำคัญคือ ${p.text.slice(0, 220)} ครับ`;
-      return { title, points, script };
-    });
+    return {
+      isCustom: true,
+      slides: validPages.map((p, idx) => {
+        const sentences = p.text
+          .split(/(?<=[.!?])\s+|\s{2,}/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const title = (sentences[0] || `สไลด์หน้าที่ ${idx + 1}`).slice(0, 60);
+        const points =
+          sentences.slice(1, 4).length > 0
+            ? sentences.slice(1, 4).map((s) => s.slice(0, 70))
+            : [p.text.slice(0, 80)];
+        const script = `สำหรับสไลด์หน้าที่ ${idx + 1} หัวข้อ ${title} ประเด็นสำคัญคือ ${p.text.slice(0, 180)} ครับ`;
+        return { title, points, script };
+      }),
+    };
   }
 
-  // กรณีไฟล์ PDF เป็นภาพสแกนหรือขนาดใหญ่เกิน 12MB ให้สร้างโครงสร้างสไลด์มาตรฐาน 5 หน้าตามชื่อไฟล์ทันที
-  return [
-    {
-      title: `ที่มาและความสำคัญ (${cleanTitle})`,
-      points: [
-        'สภาพปัญหาปัจจุบันและเหตุผลที่ต้องพัฒนาโครงงานนี้',
-        'ช่องว่างของระบบเดิมและโอกาสในการนำเทคโนโลยีมาช่วย',
-        'ประโยชน์ที่คาดว่าจะได้รับจากโครงงาน',
-      ],
-      script: `สวัสดีคณะกรรมการทุกท่านครับ วันนี้พวกเราขอนำเสนอโครงงานเรื่อง ${cleanTitle} โดยเริ่มต้นจากปัญหาสำคัญที่เราพบในปัจจุบัน และเหตุผลที่ต้องพัฒนาโซลูชันนี้ขึ้นมาแก้ไขครับ`,
-    },
-    {
-      title: 'วัตถุประสงค์และขอบเขตของโครงงาน',
-      points: [
-        'วัตถุประสงค์หลักของการพัฒนาและวิจัย',
-        'ขอบเขตด้านระบบ กลุ่มเป้าหมาย และข้อมูลที่ใช้ทดสอบ',
-        'ตัวชี้วัดความสำเร็จของโครงงาน',
-      ],
-      script: `สำหรับวัตถุประสงค์หลักของโครงงาน ${cleanTitle} คือการพัฒนาระบบที่ตอบโจทย์ผู้ใช้งานจริงภายใต้ขอบเขตและตัวชี้วัดที่เราได้กำหนดไว้อย่างชัดเจนครับ`,
-    },
-    {
-      title: 'สถาปัตยกรรมระบบและวิธีการดำเนินงาน',
-      points: [
-        'ขั้นตอนการทำงานตั้งแต่รับข้อมูลจนถึงการประมวลผล',
-        'เครื่องมือ เทคโนโลยี และทฤษฎีที่เลือกใช้',
-        'การออกแบบส่วนติดต่อผู้ใช้และการเชื่อมต่อระบบ',
-      ],
-      script: `ในส่วนของวิธีการดำเนินงาน เราได้ออกแบบสถาปัตยกรรมระบบให้ทำงานเป็นลำดับขั้น ตั้งแต่การรับข้อมูล ประมวลผล ไปจนถึงการแสดงผลลัพธ์อย่างมีประสิทธิภาพครับ`,
-    },
-    {
-      title: 'ผลการทดลองและการประเมินประสิทธิภาพ',
-      points: [
-        'ผลการทดสอบการทำงานจริงเทียบกับเกณฑ์ที่ตั้งไว้',
-        'การวิเคราะห์ความแม่นยำและความเร็วในการประมวลผล',
-        'สรุปความพึงพอใจและผลกระทบจากการใช้งาน',
-      ],
-      script: `จากผลการทดลองและประเมินประสิทธิภาพ พบว่าระบบสามารถทำงานได้ตรงตามวัตถุประสงค์ที่ตั้งไว้ และช่วยลดเวลาการทำงานลงได้อย่างชัดเจนครับ`,
-    },
-    {
-      title: 'สรุปผล ข้อจำกัด และแนวทางการพัฒนาต่อยอด',
-      points: [
-        'สรุปผลสำเร็จตามวัตถุประสงค์ของโครงงาน',
-        'ข้อจำกัดที่พบระหว่างการพัฒนาและทดสอบจริง',
-        'แนวทางการขยายผลและพัฒนาต่อยอดในอนาคต',
-      ],
-      script: `โดยสรุป โครงงาน ${cleanTitle} สามารถตอบโจทย์ปัญหาที่ตั้งไว้ได้ครบถ้วน และพร้อมนำไปพัฒนาต่อยอดขยายผลในอนาคต ขอบคุณคณะกรรมการทุกท่านครับ พร้อมรับฟังคำถามครับ`,
-    },
-  ];
+  return {
+    isCustom: false,
+    slides: [
+      {
+        title: `ที่มาและความสำคัญ (${cleanTitle})`,
+        points: [
+          'สภาพปัญหาปัจจุบันและเหตุผลที่ต้องพัฒนาโครงงานนี้',
+          'ช่องว่างของระบบเดิมและโอกาสในการนำเทคโนโลยีมาช่วย',
+          'ประโยชน์ที่คาดว่าจะได้รับจากโครงงาน',
+        ],
+        script: `สวัสดีคณะกรรมการทุกท่านครับ วันนี้พวกเราขอนำเสนอโครงงานเรื่อง ${cleanTitle} โดยเริ่มต้นจากปัญหาสำคัญที่เราพบในปัจจุบัน และเหตุผลที่ต้องพัฒนาโซลูชันนี้ขึ้นมาแก้ไขครับ`,
+      },
+      {
+        title: 'วัตถุประสงค์และขอบเขตของโครงงาน',
+        points: [
+          'วัตถุประสงค์หลักของการพัฒนาและวิจัย',
+          'ขอบเขตด้านระบบ กลุ่มเป้าหมาย และข้อมูลที่ใช้ทดสอบ',
+          'ตัวชี้วัดความสำเร็จของโครงงาน',
+        ],
+        script: `สำหรับวัตถุประสงค์หลักของโครงงาน ${cleanTitle} คือการพัฒนาระบบที่ตอบโจทย์ผู้ใช้งานจริงภายใต้ขอบเขตและตัวชี้วัดที่เราได้กำหนดไว้อย่างชัดเจนครับ`,
+      },
+      {
+        title: 'สถาปัตยกรรมระบบและวิธีการดำเนินงาน',
+        points: [
+          'ขั้นตอนการทำงานตั้งแต่รับข้อมูลจนถึงการประมวลผล',
+          'เครื่องมือ เทคโนโลยี และทฤษฎีที่เลือกใช้',
+          'การออกแบบส่วนติดต่อผู้ใช้และการเชื่อมต่อระบบ',
+        ],
+        script: `ในส่วนของวิธีการดำเนินงาน เราได้ออกแบบสถาปัตยกรรมระบบให้ทำงานเป็นลำดับขั้น ตั้งแต่การรับข้อมูล ประมวลผล ไปจนถึงการแสดงผลลัพธ์อย่างมีประสิทธิภาพครับ`,
+      },
+      {
+        title: 'ผลการทดลองและการประเมินประสิทธิภาพ',
+        points: [
+          'ผลการทดสอบการทำงานจริงเทียบกับเกณฑ์ที่ตั้งไว้',
+          'การวิเคราะห์ความแม่นยำและความเร็วในการประมวลผล',
+          'สรุปความพึงพอใจและผลกระทบจากการใช้งาน',
+        ],
+        script: `จากผลการทดลองและประเมินประสิทธิภาพ พบว่าระบบสามารถทำงานได้ตรงตามวัตถุประสงค์ที่ตั้งไว้ และช่วยลดเวลาการทำงานลงได้อย่างชัดเจนครับ`,
+      },
+      {
+        title: 'สรุปผล ข้อจำกัด และแนวทางการพัฒนาต่อยอด',
+        points: [
+          'สรุปผลสำเร็จตามวัตถุประสงค์ของโครงงาน',
+          'ข้อจำกัดที่พบระหว่างการพัฒนาและทดสอบจริง',
+          'แนวทางการขยายผลและพัฒนาต่อยอดในอนาคต',
+        ],
+        script: `โดยสรุป โครงงาน ${cleanTitle} สามารถตอบโจทย์ปัญหาที่ตั้งไว้ได้ครบถ้วน และพร้อมนำไปพัฒนาต่อยอดขยายผลในอนาคต ขอบคุณคณะกรรมการทุกท่านครับ พร้อมรับฟังคำถามครับ`,
+      },
+    ],
+  };
 }
 
 export default async function handler(req, res) {
@@ -176,7 +176,8 @@ export default async function handler(req, res) {
         const fileName = String(ev.message.fileName || 'slides.pdf').trim();
         const fileSize = Number(ev.message.fileSize || 0);
         const isPdf = fileName.toLowerCase().endsWith('.pdf');
-        const cleanTitle = fileName.replace(/\.pdf$/i, '').replace(/[_\-]+/g, ' ').trim() || 'สไลด์นำเสนอ';
+        const cleanTitle =
+          fileName.replace(/\.pdf$/i, '').replace(/[_\-]+/g, ' ').trim() || 'สไลด์นำเสนอ';
 
         let extractedPages = [];
         if (isPdf && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
@@ -203,18 +204,37 @@ export default async function handler(req, res) {
           }
         }
 
-        const slides = buildSlidesFromPdfOrTopic(cleanTitle, extractedPages);
-        const slideParams = slides
-          .map((s, idx) => {
-            const t = toUrlSafeSlug(s.title);
-            const pts = s.points.map((p) => toUrlSafeSlug(p)).join(',');
-            const sc = toUrlSafeSlug(s.script);
-            return `s${idx + 1}=${t}:${pts}|${sc}`;
-          })
-          .join('&');
+        const { isCustom, slides } = buildSlidesFromPdfOrTopic(cleanTitle, extractedPages);
 
-        const pdfParam = isPdf && (!fileSize || fileSize <= 35 * 1024 * 1024) ? `pdfId=${messageId}&` : '';
-        const rehearsalUrl = `${appBaseUrl}/?${pdfParam}topic=${toUrlSafeSlug(cleanTitle)}&aud=teacher&time=5&${slideParams}`;
+        // สร้างพารามิเตอร์ ?z= ที่เป็นตัวอักษรภาษาอังกฤษ (A-Za-z0-9-_) ล้วน 100% และสั้นกระชับ
+        const compactPayload = isCustom
+          ? {
+              n: cleanTitle,
+              a: 'teacher',
+              m: 'per_slide',
+              pm: 5,
+              qm: 5,
+              ...(isPdf && (!fileSize || fileSize <= 35 * 1024 * 1024) ? { pdfId: messageId } : {}),
+              sl: slides.map((s) => ({
+                t: s.title,
+                p: s.points,
+                s: s.script,
+              })),
+            }
+          : {
+              n: cleanTitle,
+              a: 'teacher',
+              m: 'per_slide',
+              pm: 5,
+              qm: 5,
+              auto: 1,
+            };
+
+        const compressedBytes = zlib.deflateRawSync(
+          Buffer.from(JSON.stringify(compactPayload), 'utf8'),
+        );
+        const encodedZ = compressedBytes.toString('base64url');
+        const rehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
 
         const slideLines = slides
           .map(
@@ -225,17 +245,79 @@ export default async function handler(req, res) {
 
         const sizeNote =
           fileSize > MAX_INLINE_PDF_BYTES
-            ? `\n\n💡 หมายเหตุ: ไฟล์ "${fileName}" มีขนาดใหญ่ (${(fileSize / (1024 * 1024)).toFixed(1)} MB) เมื่อกดลิงก์เข้าหน้าเว็บแล้ว คุณสามารถลากไฟล์ PDF นี้วางในช่องอัปโหลดบนเว็บเพื่อแสดงภาพสไลด์จริงคู่กับบทพูดชุดนี้ได้ทันทีครับ!`
+            ? `\n\n💡 ไฟล์ "${fileName}" มีขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB เมื่อกดเข้าหน้าเว็บแล้ว สามารถลากไฟล์ PDF นี้วางในช่องอัปโหลดเพื่อแสดงภาพสไลด์จริงคู่กับบทพูดชุดนี้ได้ทันทีครับ!`
             : '';
 
         const replyText = [
-          `รับไฟล์สไลด์ "${fileName}" เรียบร้อยแล้วครับ! ผมจัดโครงสร้างสไลด์ (${slides.length} หน้า) พร้อมร่างบทพูดแนะนำสำหรับการนำเสนอ (เวลา 5 นาที) ให้ดังนี้ครับ:\n`,
+          `รับไฟล์สไลด์ "${fileName}" เรียบร้อยแล้วครับ! ผมจัดโครงสร้างสไลด์ (${slides.length} หน้า) พร้อมร่างบทพูดแนะนำ (เวลา 5 นาที) ให้ดังนี้ครับ:\n`,
           slideLines,
-          `\n🎯 กดลิงก์ด้านล่างเพื่อเข้าห้องซ้อมพรีเซนต์พร้อมสไลด์และบทพูดชุดนี้ได้ทันทีครับ:\n👉 ${rehearsalUrl}`,
+          `\n🎯 กดลิงก์ด้านล่างเพื่อเข้าห้องซ้อมพรีเซนต์ทันที:\n${rehearsalUrl}`,
           sizeNote,
         ]
           .filter(Boolean)
           .join('\n');
+
+        const replyMessages = [
+          {
+            type: 'text',
+            text: replyText.slice(0, 4800),
+          },
+        ];
+
+        if (rehearsalUrl.length <= 990) {
+          replyMessages.push({
+            type: 'flex',
+            altText: `เข้าห้องซ้อมพรีเซนต์: ${cleanTitle}`,
+            contents: {
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'text',
+                    text: 'ICIT REHEARSAL COACH',
+                    weight: 'bold',
+                    size: 'xs',
+                    color: '#D95D39',
+                  },
+                  {
+                    type: 'text',
+                    text: cleanTitle,
+                    weight: 'bold',
+                    size: 'lg',
+                    wrap: true,
+                  },
+                  {
+                    type: 'text',
+                    text: `เตรียมสไลด์และบทพูดครบ ${slides.length} หน้า · ผู้ฟัง: อาจารย์/กรรมการ · เวลา 5 นาที`,
+                    size: 'xs',
+                    color: '#666666',
+                    wrap: true,
+                  },
+                ],
+              },
+              footer: {
+                type: 'box',
+                layout: 'vertical',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'button',
+                    style: 'primary',
+                    color: '#D95D39',
+                    action: {
+                      type: 'uri',
+                      label: 'เริ่มซ้อมพรีเซนต์ทันที',
+                      uri: rehearsalUrl,
+                    },
+                  },
+                ],
+              },
+            },
+          });
+        }
 
         await fetch('https://api.line.me/v2/bot/message/reply', {
           method: 'POST',
@@ -245,12 +327,7 @@ export default async function handler(req, res) {
           },
           body: JSON.stringify({
             replyToken: ev.replyToken,
-            messages: [
-              {
-                type: 'text',
-                text: replyText.slice(0, 4900),
-              },
-            ],
+            messages: replyMessages,
           }),
         }).catch((err) => {
           console.error('[LINE PDF Bridge] Direct reply failed:', err?.message);
