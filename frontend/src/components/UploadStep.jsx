@@ -42,8 +42,37 @@ export default function UploadStep({
     setError(null);
     setProgress({ done: 0, total: 0 });
     try {
-      const slides = await filesToSlides(files, (done, total) => setProgress({ done, total }));
-      onDeckChange({ name: files.length === 1 ? files[0].name : `รูปภาพ ${files.length} ไฟล์`, slides });
+      const uploadedSlides = await filesToSlides(files, (done, total) => setProgress({ done, total }));
+      // หากมีบทพูด (script) จากลิงก์ LangMind อยู่แล้ว ให้ผูกบทพูดเดิมเข้ากับรูปสไลด์จริงที่เพิ่งอัปโหลด
+      const existingHasScript = Array.isArray(deck?.slides) && deck.slides.some((s) => s?.script);
+      const mergedSlides = existingHasScript
+        ? uploadedSlides.map((s, idx) => {
+            const prev = deck.slides[idx];
+            if (!prev?.script) return s;
+            const combinedText = [
+              prev.title || '',
+              s.text || '',
+              `บทพูด: ${prev.script}`,
+            ]
+              .filter(Boolean)
+              .join('\n');
+            return {
+              ...s,
+              title: prev.title || s.title,
+              points: prev.points || s.points,
+              script: prev.script,
+              text: combinedText,
+            };
+          })
+        : uploadedSlides;
+      onDeckChange({
+        name: existingHasScript && deck?.name
+          ? deck.name
+          : files.length === 1
+            ? files[0].name
+            : `รูปภาพ ${files.length} ไฟล์`,
+        slides: mergedSlides,
+      });
       setIndex(0);
     } catch (e) {
       setError(e.message || 'อ่านไฟล์ไม่สำเร็จ ลองไฟล์อื่นอีกครั้ง');
