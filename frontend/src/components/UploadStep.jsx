@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import SlideViewer from './SlideViewer';
+import SlideSelector from './SlideSelector';
 import RoomSetupModal from './RoomSetupModal';
 import DeviceTestCard from './DeviceTestCard';
 import { filesToSlides, SAMPLE_DECK } from '../lib/slides';
@@ -12,6 +13,8 @@ const AUDIENCE_LABEL = {
 
 export default function UploadStep({
   deck,
+  selectedIndices = null,
+  onSelectedIndicesChange,
   externalProgress = null,
   rehearsalMode,
   onRehearsalModeChange,
@@ -85,6 +88,13 @@ export default function UploadStep({
 
   const activeProgress = progress || externalProgress;
   const loading = activeProgress !== null;
+  const totalSlides = deck?.slides?.length ?? 0;
+  const selectedCount =
+    totalSlides === 0
+      ? 0
+      : selectedIndices === null
+        ? totalSlides
+        : selectedIndices.filter((i) => i >= 0 && i < totalSlides).length || totalSlides;
 
   return (
     <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[320px_1fr] lg:gap-14">
@@ -160,7 +170,11 @@ export default function UploadStep({
           <div className="mt-4 flex items-center justify-between rounded-lg border border-line bg-white px-4 py-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{deck.name}</p>
-              <p className="text-xs text-muted">{deck.slides.length} หน้า</p>
+              <p className="text-xs text-muted">
+                {selectedCount < deck.slides.length
+                  ? `เลือกซ้อม ${selectedCount}/${deck.slides.length} หน้า`
+                  : `${deck.slides.length} หน้า`}
+              </p>
             </div>
             <button
               onClick={() => onDeckChange(null)}
@@ -207,7 +221,9 @@ export default function UploadStep({
             disabled={!deck || loading}
             className="w-full rounded-xl bg-accent py-3.5 text-sm font-semibold text-white shadow-xs transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint cursor-pointer"
           >
-            เริ่มซ้อมพูด
+            {deck && selectedCount < deck.slides.length
+              ? `เริ่มซ้อมพูด (${selectedCount} หน้า)`
+              : 'เริ่มซ้อมพูด'}
           </button>
           {!deck && !loading && (
             <button
@@ -236,6 +252,15 @@ export default function UploadStep({
       {/* ขวา: พรีวิวสไลด์ */}
       <section>
         <SlideViewer slides={deck?.slides} index={index} onIndexChange={setIndex} />
+        {deck && !loading && onSelectedIndicesChange && (
+          <SlideSelector
+            slides={deck.slides}
+            selectedIndices={selectedIndices}
+            onChange={onSelectedIndicesChange}
+            activeIndex={index}
+            onSelectPreview={setIndex}
+          />
+        )}
       </section>
 
       {setupOpen && (

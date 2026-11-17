@@ -8,6 +8,7 @@ import GroupQaView from './GroupQaView';
 import GroupSummaryView from './GroupSummaryView';
 import GroupAssignModal, { getMemberColor } from './GroupAssignModal';
 import GroupSetupModal from './GroupSetupModal';
+import SlideSelector from './SlideSelector';
 
 async function compressSlideForSocket(slide) {
   const src = slide?.src;
@@ -59,6 +60,8 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
   const [maxMembersInput, setMaxMembersInput] = useState(6);
   const [slideProgress, setSlideProgress] = useState(null);
   const [peerVolumes, setPeerVolumes] = useState({});
+  const [hostSourceDeck, setHostSourceDeck] = useState(null);
+  const [hostSelectedIndices, setHostSelectedIndices] = useState(null);
 
   const socketRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -119,7 +122,10 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
 
     setBusy(true);
     setError('');
-    socket.emit('group:create', { name: cleanName, maxMembers: maxMembersInput }, (res) => {
+    socket.emit(
+      'group:create',
+      { name: cleanName, maxMembers: maxMembersInput, userId: user?.id || null },
+      (res) => {
       setBusy(false);
       if (!res?.ok) {
         setError(res?.message || 'สร้างห้องไม่สำเร็จ');
@@ -150,7 +156,10 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
 
     setBusy(true);
     setError('');
-    socket.emit('group:join', { code: cleanCode, name: cleanName }, (res) => {
+    socket.emit(
+      'group:join',
+      { code: cleanCode, name: cleanName, userId: user?.id || null },
+      (res) => {
       setBusy(false);
       if (!res?.ok) {
         setError(res?.message || 'เข้าร่วมห้องไม่สำเร็จ');
@@ -193,6 +202,8 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
       const compressed = await Promise.all(rawSlides.map(compressSlideForSocket));
       const deckName =
         files.length === 1 ? files[0].name : `รูปภาพ ${files.length} ไฟล์`;
+      setHostSourceDeck({ deckName, slides: compressed });
+      setHostSelectedIndices(compressed.map((_, i) => i));
       socket.emit('group:set_deck', { deckName, slides: compressed }, (res) => {
         if (!res?.ok) {
           setError(res?.message || 'อัปโหลดสไลด์เข้าห้องไม่สำเร็จ');
@@ -210,12 +221,58 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
     const socket = socketRef.current;
     if (!socket) return;
     setError('');
+    setHostSourceDeck({ deckName: SAMPLE_DECK.name, slides: SAMPLE_DECK.slides });
+    setHostSelectedIndices(SAMPLE_DECK.slides.map((_, i) => i));
     socket.emit(
       'group:set_deck',
       { deckName: SAMPLE_DECK.name, slides: SAMPLE_DECK.slides },
       (res) => {
         if (!res?.ok) {
           setError(res?.message || 'โหลดสไลด์ตัวอย่างไม่สำเร็จ');
+        }
+      },
+    );
+  };
+
+  const handleHostSelectSlides = (nextIndices) => {
+    const socket = socketRef.current;
+    if (!socket || !room) return;
+    const source = hostSourceDeck || {
+      deckName: room.deckName || 'ชุดสไลด์',
+      slides: room.slides || [],
+    };
+    if (!hostSourceDeck) {
+      setHostSourceDeck(source);
+    }
+    setHostSelectedIndices(nextIndices);
+    const filtered = nextIndices.map((i) => source.slides[i]).filter(Boolean);
+    if (filtered.length === 0) return;
+
+    // เก็บ mapping คิวคนพูดเดิมตาม id ของสไลด์ไว้ เพื่อไม่ให้คนพูดสลับหน้าเมื่อติ๊กซ่อนบางหน้า
+    const oldSlides = room.slides || [];
+    const oldAssignments = room.assignments || {};
+    const ownerBySlideId = new Map();
+    oldSlides.forEach((s, idx) => {
+      if (oldAssignments[idx]) {
+        const key = s?.id != null ? `id:${s.id}` : `idx:${idx}`;
+        ownerBySlideId.set(key, oldAssignments[idx]);
+      }
+    });
+    const remappedAssignments = {};
+    filtered.forEach((s, newIdx) => {
+      const key = s?.id != null ? `id:${s.id}` : `idx:${newIdx}`;
+      const ownerId = ownerBySlideId.get(key);
+      if (ownerId) remappedAssignments[newIdx] = ownerId;
+    });
+
+    socket.emit(
+      'group:set_deck',
+      { deckName: source.deckName, slides: filtered },
+      (res) => {
+        if (!res?.ok) {
+          setError(res?.message || 'อัปเดตสไลด์ที่เลือกไม่สำเร็จ');
+        } else if (Object.keys(oldAssignments).length > 0) {
+          socket.emit('group:set_assignments', { assignments: remappedAssignments });
         }
       },
     );
@@ -251,10 +308,10 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
     socket.emit('group:slide_change', { index: nextIdx });
   };
 
-  const handleStopRehearsal = () => {
+  const handleStopRehearsal = (roundSnapshot = null) => {
     const socket = socketRef.current;
     if (!socket) return;
-    socket.emit('group:stop');
+    socket.emit('group:stop', roundSnapshot ? { roundSnapshot } : {});
   };
 
   const handleFinishRehearsal = () => {
@@ -451,6 +508,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
       <GroupSummaryView
         socket={socketRef.current}
         room={room}
+        user={user}
         selfId={selfId}
         onBackToLobby={handleStopRehearsal}
         onLeaveRoom={handleLeaveRoom}
@@ -728,6 +786,15 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
                   />
                 </div>
               </div>
+            )}
+
+            {isHost && (hostSourceDeck?.slides?.length > 1 || slides.length > 1) && (
+              <SlideSelector
+                slides={hostSourceDeck?.slides || slides}
+                selectedIndices={hostSourceDeck ? hostSelectedIndices : null}
+                onChange={handleHostSelectSlides}
+                label="เลือกสไลด์ที่จะใช้ซ้อมในห้อง"
+              />
             )}
 
             {slides.length > 0 && (

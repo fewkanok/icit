@@ -8,6 +8,7 @@ export const TOKEN_COSTS = {
   QA_EVALUATE: 1,
   TTS: 1,
   SUMMARY_ANALYZE: 2,
+  ROUND_COMPARE: 1,
 } as const;
 
 const TOPUP_PACKAGES: Record<string, { amount: number; label: string }> = {

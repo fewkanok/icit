@@ -4,17 +4,22 @@ import {
   deleteGroupClips,
   evaluateQaAnswer,
   fetchGroupClips,
+  saveRehearsalSession,
+  uploadSessionVideoToCloud,
 } from '../lib/api';
+import { saveLocalSessionVideo } from '../lib/videoStore';
 import { analyze, formatTime, pace, PACE_PILL, PACE_TEXT } from '../lib/metrics';
 import { mergeAudioTracks, mergeVideoTracks } from '../lib/mediaMerge';
 import { askConfirm } from './ConfirmModal';
 import SummaryCharts from './SummaryCharts';
 import TimelineReplayPlayer from './TimelineReplayPlayer';
 import VideoLayoutModal from './VideoLayoutModal';
+import RoundComparisonCard from './RoundComparisonCard';
 
 export default function GroupSummaryView({
   socket,
   room,
+  user = null,
   selfId,
   onBackToLobby,
   onLeaveRoom,
@@ -44,6 +49,7 @@ export default function GroupSummaryView({
   const [localAiSummary, setLocalAiSummary] = useState(null);
   const [qaEvalLoading, setQaEvalLoading] = useState({});
   const [localQaEvals, setLocalQaEvals] = useState({});
+  const [localCompareCache, setLocalCompareCache] = useState({});
 
   const [layoutModalOpen, setLayoutModalOpen] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -52,6 +58,11 @@ export default function GroupSummaryView({
   const [mergedVideoExt, setMergedVideoExt] = useState('mp4');
   const [mergedAudioUrl, setMergedAudioUrl] = useState(null);
   const [audioMerging, setAudioMerging] = useState(false);
+  const [savedSessionId, setSavedSessionId] = useState(null);
+  const [savingHistory, setSavingHistory] = useState(false);
+  const [historySavedMsg, setHistorySavedMsg] = useState('');
+  const [cloudUploading, setCloudUploading] = useState(false);
+  const [cloudUploaded, setCloudUploaded] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -304,9 +315,177 @@ export default function GroupSummaryView({
     }
   };
 
+  const groupRoundSnapshot = useMemo(() => {
+    const roundsHistory = Array.isArray(room.roundsHistory) ? room.roundsHistory : [];
+    const totalDur = slideClips.reduce((s, c) => s + (c.analysis?.duration || 0), 0);
+    const totalFillers = slideClips.reduce((s, c) => s + (c.analysis?.fillers?.total || 0), 0);
+    const totalDeadAir = slideClips.reduce((s, c) => s + (c.analysis?.deadAir?.count || 0), 0);
+    const avgWpm = slideClips.length
+      ? Math.round(slideClips.reduce((s, c) => s + (c.analysis?.wpm || 0), 0) / slideClips.length)
+      : 0;
+    const visionClips = slideClips.filter((c) => c.analysis?.vision?.cameraUsed);
+    const avgEye = visionClips.length
+      ? Math.round(
+          visionClips.reduce((s, c) => s + (c.analysis.vision.eyeContactPct || 0), 0) /
+            visionClips.length,
+        )
+      : null;
+
+    const byMember = new Map();
+    slideClips.forEach((c) => {
+      const name = c.memberName || 'สมาชิก';
+      if (!byMember.has(name)) {
+        byMember.set(name, { name, wpmSum: 0, count: 0, fillersCount: 0, eyeSum: 0, eyeCount: 0 });
+      }
+      const entry = byMember.get(name);
+      entry.wpmSum += c.analysis?.wpm || 0;
+      entry.count += 1;
+      entry.fillersCount += c.analysis?.fillers?.total || 0;
+      if (c.analysis?.vision?.cameraUsed) {
+        entry.eyeSum += c.analysis.vision.eyeContactPct || 0;
+        entry.eyeCount += 1;
+      }
+    });
+
+    const members = Array.from(byMember.values()).map((m) => ({
+      name: m.name,
+      avgWpm: m.count ? Math.round(m.wpmSum / m.count) : 0,
+      fillersCount: m.fillersCount,
+      eyeContactPct: m.eyeCount ? Math.round(m.eyeSum / m.eyeCount) : null,
+    }));
+
+    const qaAnswered = qaQuestions.filter((_, i) => qaAnswers[i]?.answerTranscript?.trim());
+    const qaDirect = qaQuestions.filter((_, i) => qaEvaluations[i]?.directness === 'direct');
+
+    return {
+      roundNumber: roundsHistory.length + 1,
+      slideCount: slides.length,
+      avgWpm,
+      fillersCount: totalFillers,
+      deadAirCount: totalDeadAir,
+      totalDurationSec: Math.round(totalDur),
+      eyeContactPct: avgEye,
+      qaAnsweredCount: qaAnswered.length,
+      qaDirectCount: qaDirect.length,
+      transcriptExcerpt: slideClips
+        .map((c) => `[หน้า ${c.slideIndex + 1}] [ผู้พูด: ${c.memberName || 'สมาชิก'}] ${c.analysis?.transcript || ''}`)
+        .join('\n')
+        .slice(0, 5500),
+      members,
+    };
+  }, [room.roundsHistory, slideClips, qaQuestions, qaAnswers, qaEvaluations]);
+
   const handleBackLobbyAndClean = async () => {
     await deleteGroupClips(room.code).catch(() => {});
-    onBackToLobby();
+    onBackToLobby(groupRoundSnapshot);
+  };
+
+  const handleSaveGroupHistory = async () => {
+    if (!user || savingHistory) return;
+    setSavingHistory(true);
+    setError('');
+    setHistorySavedMsg('');
+    try {
+      const roundsHistory = Array.isArray(room.roundsHistory) ? room.roundsHistory : [];
+      const participants = (room.members || []).map((m) => {
+        const myClips = slideClips.filter((c) => c.memberName === m.name);
+        const myDur = myClips.reduce((s, c) => s + (c.analysis?.duration || 0), 0);
+        const myWpm = myClips.length
+          ? Math.round(myClips.reduce((s, c) => s + (c.analysis?.wpm || 0), 0) / myClips.length)
+          : 0;
+        const myEyeClips = myClips.filter((c) => c.analysis?.vision?.cameraUsed);
+        const myEye = myEyeClips.length
+          ? Math.round(
+              myEyeClips.reduce((s, c) => s + (c.analysis.vision.eyeContactPct || 0), 0) /
+                myEyeClips.length,
+            )
+          : null;
+        return {
+          userId: m.userId || null,
+          displayName: m.name,
+          role: m.id === room.hostId ? 'host' : 'member',
+          slideIndexes: myClips.map((c) => c.slideIndex),
+          durationSec: myDur,
+          avgWpm: myWpm,
+          avgEyeContactPct: myEye,
+          transcript: myClips
+            .map((c) => `[หน้า ${c.slideIndex + 1}] ${c.analysis?.transcript || ''}`)
+            .join('\n'),
+        };
+      });
+
+      const res = await saveRehearsalSession({
+        sessionId: savedSessionId || undefined,
+        deckName: room.deckName || `ห้องกลุ่ม ${room.code}`,
+        audience: room.settings?.audience || 'general',
+        rehearsalMode: 'per_slide',
+        isGroup: true,
+        roomCode: room.code,
+        seriesId: `group_${room.code}`,
+        roundNumber: roundsHistory.length + 1,
+        slideCount: slides.length,
+        totalDurationSec: groupRoundSnapshot.totalDurationSec,
+        avgWpm: groupRoundSnapshot.avgWpm,
+        avgEyeContactPct: groupRoundSnapshot.eyeContactPct,
+        slidesJson: slides.map((s, idx) => {
+          const c = clipMap.get(idx);
+          return {
+            index: idx,
+            title: s?.title || `หน้า ${idx + 1}`,
+            memberName: c?.memberName || null,
+            duration: c?.analysis?.duration || 0,
+            wpm: c?.analysis?.wpm || 0,
+            fillersCount: c?.analysis?.fillers?.total || 0,
+            deadAirCount: c?.analysis?.deadAir?.count || 0,
+            transcript: c?.analysis?.transcript || '',
+            eyeContactPct: c?.analysis?.vision?.cameraUsed ? c.analysis.vision.eyeContactPct : null,
+          };
+        }),
+        qaJson: qaQuestions.map((q, idx) => ({
+          question: q.question,
+          answerTranscript: qaAnswers[idx]?.answerTranscript || '',
+          responderName: qaAnswers[idx]?.responderName || null,
+          ...(qaEvaluations[idx] || {}),
+        })),
+        summaryJson: aiSummary || null,
+        participants,
+      });
+
+      const sid = res?.session?.id;
+      if (sid) {
+        setSavedSessionId(sid);
+        if (mergedVideoUrl) {
+          const blob = await fetch(mergedVideoUrl).then((r) => r.blob()).catch(() => null);
+          if (blob && blob.size > 0) {
+            await saveLocalSessionVideo(sid, blob);
+          }
+        }
+        setHistorySavedMsg(
+          mergedVideoUrl
+            ? 'บันทึกลงประวัติ + คลิปในเครื่องเรียบร้อยแล้ว'
+            : 'บันทึกลงประวัติเรียบร้อยแล้ว (รวมคลิปก่อนบันทึกเพื่อเก็บวิดีโอในเครื่อง)',
+        );
+      }
+    } catch (err) {
+      setError(err?.message || 'บันทึกลงประวัติไม่สำเร็จ');
+    } finally {
+      setSavingHistory(false);
+    }
+  };
+
+  const handleUploadGroupVideoToCloud = async () => {
+    if (!savedSessionId || !mergedVideoUrl || cloudUploading) return;
+    setCloudUploading(true);
+    setError('');
+    try {
+      const blob = await fetch(mergedVideoUrl).then((r) => r.blob());
+      await uploadSessionVideoToCloud(savedSessionId, blob);
+      setCloudUploaded(true);
+    } catch (err) {
+      setError(err?.message || 'อัปโหลดคลิปขึ้นคลาวด์ไม่สำเร็จ');
+    } finally {
+      setCloudUploading(false);
+    }
   };
 
   const handleLeaveAndClean = () => {
@@ -517,6 +696,18 @@ export default function GroupSummaryView({
 
       {activeTab === 'overview' && (
         <>
+          <RoundComparisonCard
+            roundsHistory={room.roundsHistory || []}
+            currentRound={groupRoundSnapshot}
+            deckName={room.deckName || 'ชุดสไลด์กลุ่ม'}
+            audience={room.settings?.audience || 'general'}
+            mode="group"
+            aiCache={{ ...localCompareCache, ...(room.roundCompareCache || {}) }}
+            onAiCacheChange={(key, result) => {
+              setLocalCompareCache((prev) => ({ ...prev, [key]: result }));
+              socket?.emit('group:set_round_compare', { key, result });
+            }}
+          />
       {/* การ์ดสถิติหลัก 4 ช่อง (สไตล์เดียวกับซ้อมเดี่ยว) */}
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-line bg-white p-4">
@@ -637,7 +828,41 @@ export default function GroupSummaryView({
                 </button>
               </>
             )}
+
+            {user && (
+              <button
+                type="button"
+                onClick={handleSaveGroupHistory}
+                disabled={savingHistory}
+                className="rounded-lg border border-ink bg-white px-4 py-2 text-xs font-medium text-ink transition hover:bg-paper disabled:opacity-50 cursor-pointer"
+              >
+                {savingHistory
+                  ? 'กำลังบันทึก...'
+                  : savedSessionId
+                    ? 'อัปเดตประวัติกลุ่มแล้ว ✓'
+                    : 'บันทึกลงประวัติ'}
+              </button>
+            )}
+
+            {user && savedSessionId && mergedVideoUrl && (
+              <button
+                type="button"
+                onClick={handleUploadGroupVideoToCloud}
+                disabled={cloudUploading || cloudUploaded}
+                className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink disabled:opacity-60 cursor-pointer"
+              >
+                {cloudUploaded
+                  ? '✓ บันทึกขึ้นคลาวด์แล้ว'
+                  : cloudUploading
+                    ? 'กำลังอัปโหลด...'
+                    : 'บันทึกคลิปขึ้นคลาวด์'}
+              </button>
+            )}
           </div>
+
+          {historySavedMsg && (
+            <p className="text-xs text-emerald-700">{historySavedMsg}</p>
+          )}
 
           {mergedAudioUrl && (
             <div className="space-y-1.5 pt-1">

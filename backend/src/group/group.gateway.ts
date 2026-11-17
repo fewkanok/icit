@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface GroupMember {
   id: string;
+  userId?: string | null;
   name: string;
   role: 'host' | 'member';
   ready: boolean;
@@ -84,11 +85,13 @@ interface GroupRoom {
   interruptResults: Record<number, GroupInterruptItem>;
   aiSummary: unknown;
   qaEvaluations: Record<number, unknown>;
+  roundCompareCache: Record<string, unknown>;
   stageStartedAt: number | null;
   qaElapsedBaseMs: number;
   qaRunningSince: number | null;
   currentSlideIndex: number;
   uploadedSlides: number[];
+  roundsHistory: unknown[];
 }
 
 function isAllowedGroupOrigin(origin: string | undefined): boolean {
@@ -190,11 +193,13 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
       interruptResults: room.interruptResults,
       aiSummary: room.aiSummary,
       qaEvaluations: room.qaEvaluations,
+      roundCompareCache: room.roundCompareCache,
       stageStartedAt: room.stageStartedAt,
       qaElapsedBaseMs: room.qaElapsedBaseMs,
       qaRunningSince: room.qaRunningSince,
       currentSlideIndex: room.currentSlideIndex,
       uploadedSlides: room.uploadedSlides,
+      roundsHistory: room.roundsHistory,
     };
   }
 
@@ -264,7 +269,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
   @SubscribeMessage('group:create')
   handleCreateGroup(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { name?: string; maxMembers?: number },
+    @MessageBody() body: { name?: string; maxMembers?: number; userId?: string | null },
   ) {
     this.removeMemberFromCurrentRoom(client);
 
@@ -286,6 +291,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
       members: [
         {
           id: client.id,
+          userId: typeof body?.userId === 'string' && body.userId.trim() ? body.userId.trim().slice(0, 64) : null,
           name: displayName,
           role: 'host',
           ready: true,
@@ -318,11 +324,13 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
       interruptResults: {},
       aiSummary: null,
       qaEvaluations: {},
+      roundCompareCache: {},
       stageStartedAt: null,
       qaElapsedBaseMs: 0,
       qaRunningSince: null,
       currentSlideIndex: 0,
       uploadedSlides: [],
+      roundsHistory: [],
     };
 
     this.rooms.set(code, room);
@@ -339,7 +347,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
   @SubscribeMessage('group:join')
   handleJoinGroup(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { code?: string; name?: string },
+    @MessageBody() body: { code?: string; name?: string; userId?: string | null },
   ) {
     if (!this.checkJoinRateLimit(client.id)) {
       return { ok: false, message: 'ลองเข้าร่วมห้องบ่อยเกินไป กรุณารอสักครู่' };
@@ -369,6 +377,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
       this.removeMemberFromCurrentRoom(client);
       room.members.push({
         id: client.id,
+        userId: typeof body?.userId === 'string' && body.userId.trim() ? body.userId.trim().slice(0, 64) : null,
         name: displayName,
         role: 'member',
         ready: false,
@@ -479,6 +488,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
     room.qaAnswers = {};
     room.aiSummary = null;
     room.qaEvaluations = {};
+    room.roundCompareCache = {};
     room.currentSlideIndex = 0;
     room.uploadedSlides = [];
     this.deleteRoomClips(room.code);
@@ -559,6 +569,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
     }
     room.aiSummary = null;
     room.qaEvaluations = {};
+    room.roundCompareCache = {};
     room.currentSlideIndex = 0;
     room.uploadedSlides = [];
     this.deleteRoomClips(room.code);
@@ -829,6 +840,21 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
     return { ok: true };
   }
 
+  @SubscribeMessage('group:set_round_compare')
+  handleSetRoundCompare(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { key?: string; result?: unknown },
+  ) {
+    const room = this.getRoomForSocket(client);
+    if (!room || typeof body?.key !== 'string' || !body.key) return { ok: false };
+    room.roundCompareCache = {
+      ...room.roundCompareCache,
+      [body.key]: body.result ?? null,
+    };
+    this.emitState(room);
+    return { ok: true };
+  }
+
   @SubscribeMessage('group:slide_change')
   handleSlideChange(
     @ConnectedSocket() client: Socket,
@@ -854,10 +880,17 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
   }
 
   @SubscribeMessage('group:stop')
-  handleStopGroup(@ConnectedSocket() client: Socket) {
+  handleStopGroup(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload?: { roundSnapshot?: unknown },
+  ) {
     const room = this.getRoomForSocket(client);
     if (!room || room.hostId !== client.id) {
       return { ok: false };
+    }
+
+    if (payload?.roundSnapshot && typeof payload.roundSnapshot === 'object') {
+      room.roundsHistory = [...room.roundsHistory, payload.roundSnapshot].slice(-20);
     }
 
     room.started = false;
@@ -869,6 +902,7 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
     room.qaAnswers = {};
     room.aiSummary = null;
     room.qaEvaluations = {};
+    room.roundCompareCache = {};
     room.currentSlideIndex = 0;
     room.uploadedSlides = [];
     this.deleteRoomClips(room.code);

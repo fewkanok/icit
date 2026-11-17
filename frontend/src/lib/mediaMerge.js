@@ -157,13 +157,9 @@ async function renderSlidePngBytes(slide, qaQuestion = '', layout = DEFAULT_LAYO
   // Layout แบบกำหนดเองบนเฟรม 960x540
   const W = 960;
   const H = 540;
-  const sBox = layout?.slide || DEFAULT_LAYOUT.slide;
-  const cBox = layout?.camera || DEFAULT_LAYOUT.camera;
-
-  const sx = Math.round(sBox.x * W);
-  const sy = Math.round(sBox.y * H);
-  const sw = Math.max(120, Math.round(sBox.w * W));
-  const sh = Math.max(90, Math.round(sBox.h * H));
+  const sBox = layout?.slide === undefined ? DEFAULT_LAYOUT.slide : layout.slide;
+  const cBox = layout?.camera === undefined ? DEFAULT_LAYOUT.camera : layout.camera;
+  const qBox = layout?.qa === undefined ? DEFAULT_LAYOUT.qa : layout.qa;
 
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -174,61 +170,67 @@ async function renderSlidePngBytes(slide, qaQuestion = '', layout = DEFAULT_LAYO
   ctx.fillStyle = '#f4f4f5';
   ctx.fillRect(0, 0, W, H);
 
-  // กล่องพื้นหลังสไลด์
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(sx, sy, sw, sh);
+  if (sBox) {
+    const sx = Math.round(sBox.x * W);
+    const sy = Math.round(sBox.y * H);
+    const sw = Math.max(120, Math.round(sBox.w * W));
+    const sh = Math.max(90, Math.round(sBox.h * H));
 
-  const src = slide?.src || slide?.url;
-  if (src) {
-    await new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-          const pad = 8;
-          const maxW = Math.max(40, sw - pad * 2);
-          const maxH = Math.max(40, sh - pad * 2);
-          const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight);
-          const dw = img.naturalWidth * scale;
-          const dh = img.naturalHeight * scale;
-          ctx.drawImage(img, sx + (sw - dw) / 2, sy + (sh - dh) / 2, dw, dh);
-        }
-        resolve();
-      };
-      img.onerror = () => resolve();
-      img.src = src;
-    });
-  } else if (slide?.title) {
-    const padX = sw < 520 ? 22 : 36;
-    const textMaxW = Math.max(120, sw - padX * 2);
-    ctx.fillStyle = '#18181b';
-    ctx.font = sw < 520 ? '600 20px sans-serif' : '600 24px sans-serif';
-    const titleLines = wrapCanvasLines(ctx, slide.title, textMaxW, 4);
-    let cursorY = sy + 64;
-    titleLines.forEach((line) => {
-      ctx.fillText(line, sx + padX, cursorY);
-      cursorY += 28;
-    });
+    // กล่องพื้นหลังสไลด์
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx, sy, sw, sh);
 
-    cursorY += 14;
-    ctx.fillStyle = '#52525b';
-    ctx.font = sw < 520 ? '400 15px sans-serif' : '400 17px sans-serif';
-    const points = Array.isArray(slide.points) ? slide.points : [];
-    for (const pt of points) {
-      if (cursorY > sy + sh - 24) break;
-      const ptLines = wrapCanvasLines(ctx, `• ${String(pt)}`, textMaxW, 8);
-      for (const line of ptLines) {
-        if (cursorY > sy + sh - 20) break;
+    const src = slide?.src || slide?.url;
+    if (src) {
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const pad = 8;
+            const maxW = Math.max(40, sw - pad * 2);
+            const maxH = Math.max(40, sh - pad * 2);
+            const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight);
+            const dw = img.naturalWidth * scale;
+            const dh = img.naturalHeight * scale;
+            ctx.drawImage(img, sx + (sw - dw) / 2, sy + (sh - dh) / 2, dw, dh);
+          }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = src;
+      });
+    } else if (slide?.title) {
+      const padX = sw < 520 ? 22 : 36;
+      const textMaxW = Math.max(120, sw - padX * 2);
+      ctx.fillStyle = '#18181b';
+      ctx.font = sw < 520 ? '600 20px sans-serif' : '600 24px sans-serif';
+      const titleLines = wrapCanvasLines(ctx, slide.title, textMaxW, 4);
+      let cursorY = sy + 64;
+      titleLines.forEach((line) => {
         ctx.fillText(line, sx + padX, cursorY);
-        cursorY += 23;
+        cursorY += 28;
+      });
+
+      cursorY += 14;
+      ctx.fillStyle = '#52525b';
+      ctx.font = sw < 520 ? '400 15px sans-serif' : '400 17px sans-serif';
+      const points = Array.isArray(slide.points) ? slide.points : [];
+      for (const pt of points) {
+        if (cursorY > sy + sh - 24) break;
+        const ptLines = wrapCanvasLines(ctx, `• ${String(pt)}`, textMaxW, 8);
+        for (const line of ptLines) {
+          if (cursorY > sy + sh - 20) break;
+          ctx.fillText(line, sx + padX, cursorY);
+          cursorY += 23;
+        }
+        cursorY += 8;
       }
-      cursorY += 8;
     }
   }
 
   // วาดการ์ดคำถาม Q&A แบบ Auto-fit ความสูงตามเนื้อหา (ไม่เหลือพื้นที่ขาวโล่งๆ)
-  if (qaQuestion) {
-    const qBox = layout?.qa || DEFAULT_LAYOUT.qa;
+  if (qaQuestion && qBox) {
     const qx = Math.round(qBox.x * W);
     const qy = Math.round(qBox.y * H);
     const qw = Math.max(180, Math.round(qBox.w * W));
@@ -280,28 +282,30 @@ async function renderSlidePngBytes(slide, qaQuestion = '', layout = DEFAULT_LAYO
     });
   }
 
-  // กรอบรอบกล้องผู้พูด (เงา + ขอบขาวให้แยกชัดแม้ซ้อนบนสไลด์)
-  const camW = toEvenPx(cBox.w * W, 120);
-  const camH = toEvenPx(cBox.h * H, 90);
-  const camX = Math.max(0, Math.min(W - camW, Math.round(cBox.x * W)));
-  const camY = Math.max(0, Math.min(H - camH, Math.round(cBox.y * H)));
-  const framePad = 4;
+  if (cBox) {
+    // กรอบรอบกล้องผู้พูด (เงา + ขอบขาวให้แยกชัดแม้ซ้อนบนสไลด์)
+    const camW = toEvenPx(cBox.w * W, 120);
+    const camH = toEvenPx(cBox.h * H, 90);
+    const camX = Math.max(0, Math.min(W - camW, Math.round(cBox.x * W)));
+    const camY = Math.max(0, Math.min(H - camH, Math.round(cBox.y * H)));
+    const framePad = 4;
 
-  ctx.save();
-  ctx.shadowColor = 'rgba(24, 24, 27, 0.16)';
-  ctx.shadowBlur = 16;
-  ctx.shadowOffsetY = 4;
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
-  ctx.fill();
-  ctx.restore();
+    ctx.save();
+    ctx.shadowColor = 'rgba(24, 24, 27, 0.16)';
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
+    ctx.fill();
+    ctx.restore();
 
-  ctx.strokeStyle = '#d4d4d8';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
-  ctx.stroke();
+    ctx.strokeStyle = '#d4d4d8';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(camX - framePad, camY - framePad, camW + framePad * 2, camH + framePad * 2, 10);
+    ctx.stroke();
+  }
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   const buf = await blob.arrayBuffer();
@@ -369,17 +373,24 @@ export async function mergeVideoTracks(videoItems, onProgress, { forceCompose = 
     };
     ffmpeg.on('progress', handleProgress);
 
-    const camBox = layout?.camera || DEFAULT_LAYOUT.camera;
-    const camW = toEvenPx(camBox.w * 960, 120);
-    const camH = toEvenPx(camBox.h * 540, 90);
-    const camX = Math.max(0, Math.min(960 - camW, Math.round(camBox.x * 960)));
-    const camY = Math.max(0, Math.min(540 - camH, Math.round(camBox.y * 540)));
+    const camBox = layout?.camera === undefined ? DEFAULT_LAYOUT.camera : layout.camera;
+    const camW = camBox ? toEvenPx(camBox.w * 960, 120) : 0;
+    const camH = camBox ? toEvenPx(camBox.h * 540, 90) : 0;
+    const camX = camBox ? Math.max(0, Math.min(960 - camW, Math.round(camBox.x * 960))) : 0;
+    const camY = camBox ? Math.max(0, Math.min(540 - camH, Math.round(camBox.y * 540))) : 0;
 
     const runConcat = async (withAudio) => {
       const vPrep = itemMeta
         .map(({ vidIdx, bgEntries }, i) => {
           if (bgEntries.length === 1) {
             const { bgIdx } = bgEntries[0];
+            if (!camBox) {
+              return (
+                `[${vidIdx}:v:0]scale=960:540,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[dur${i}];` +
+                `[${bgIdx}:v]setsar=1,fps=15,format=yuv420p[bg${i}];` +
+                `[dur${i}][bg${i}]overlay=0:0:shortest=1[v${i}]`
+              );
+            }
             return (
               `[${vidIdx}:v:0]scale=${camW}:${camH}:force_original_aspect_ratio=increase,crop=${camW}:${camH},hflip,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[cam${i}];` +
               `[${bgIdx}:v]setsar=1,fps=15,format=yuv420p[bg${i}];` +
@@ -388,9 +399,15 @@ export async function mergeVideoTracks(videoItems, onProgress, { forceCompose = 
           }
           if (bgEntries.length > 1) {
             const parts = [];
-            parts.push(
-              `[${vidIdx}:v:0]scale=${camW}:${camH}:force_original_aspect_ratio=increase,crop=${camW}:${camH},hflip,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[cam${i}]`,
-            );
+            if (camBox) {
+              parts.push(
+                `[${vidIdx}:v:0]scale=${camW}:${camH}:force_original_aspect_ratio=increase,crop=${camW}:${camH},hflip,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[cam${i}]`,
+              );
+            } else {
+              parts.push(
+                `[${vidIdx}:v:0]scale=960:540,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[dur${i}]`,
+              );
+            }
             bgEntries.forEach(({ bgIdx }, j) => {
               parts.push(`[${bgIdx}:v]setsar=1,fps=15,format=yuv420p[s${i}_${j}]`);
             });
@@ -401,7 +418,11 @@ export async function mergeVideoTracks(videoItems, onProgress, { forceCompose = 
               parts.push(`[${prevLabel}][s${i}_${j}]overlay=0:0:enable='gte(t,${tSec})'[${outLabel}]`);
               prevLabel = outLabel;
             }
-            parts.push(`[bg${i}][cam${i}]overlay=${camX}:${camY}:shortest=1[v${i}]`);
+            if (camBox) {
+              parts.push(`[bg${i}][cam${i}]overlay=${camX}:${camY}:shortest=1[v${i}]`);
+            } else {
+              parts.push(`[dur${i}][bg${i}]overlay=0:0:shortest=1[v${i}]`);
+            }
             return parts.join(';');
           }
           return `[${vidIdx}:v:0]scale=960:540:force_original_aspect_ratio=decrease,pad=960:540:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=15,format=yuv420p,setpts=PTS-STARTPTS[v${i}]`;

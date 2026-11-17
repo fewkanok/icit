@@ -43,12 +43,16 @@ model RehearsalSession {
   rehearsalMode    String                 @default("per_slide")
   isGroup          Boolean                @default(false)
   roomCode         String?
+  seriesId         String?
+  roundNumber      Int                    @default(1)
   shareId          String?                @unique
   slideCount       Int                    @default(0)
   totalDurationSec Int                    @default(0)
   avgWpm           Int                    @default(0)
   avgEyeContactPct Int?
   overallScore     Int?
+  videoPath        String?
+  videoUploadedAt  DateTime?
   slidesJson       Json?
   qaJson           Json?
   summaryJson      Json?
@@ -57,6 +61,7 @@ model RehearsalSession {
   participants     RehearsalParticipant[]
 
   @@index([userId, createdAt])
+  @@index([userId, seriesId])
 }
 
 model RehearsalParticipant {

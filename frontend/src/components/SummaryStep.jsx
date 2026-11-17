@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatTime, pace, PACE_TEXT } from '../lib/metrics';
-import { analyzeSummaryWithAi, evaluateQaAnswer, saveRehearsalSession } from '../lib/api';
+import {
+  analyzeSummaryWithAi,
+  evaluateQaAnswer,
+  saveRehearsalSession,
+  uploadSessionVideoToCloud,
+} from '../lib/api';
+import { saveLocalSessionVideo } from '../lib/videoStore';
 import { mergeAudioTracks, mergeVideoTracks } from '../lib/mediaMerge';
 import { askConfirm } from './ConfirmModal';
 import TimelineReplayPlayer from './TimelineReplayPlayer';
 import VideoLayoutModal, { DEFAULT_VIDEO_LAYOUT } from './VideoLayoutModal';
 import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
+import RoundComparisonCard from './RoundComparisonCard';
 
 function getSlideText(slide) {
   if (!slide) return '';
@@ -26,11 +33,16 @@ export default function SummaryStep({
   aiSummary,
   onAiSummaryChange,
   savedSessionId = null,
+  seriesId = null,
   onSavedSessionIdChange,
   onUpdateQaResults,
   onBack,
   onReRecordSlide,
   onUpdateTranscript,
+  roundsHistory = [],
+  compareAiCache = {},
+  onCompareAiCacheChange,
+  onClearRoundsHistory,
   onRestart,
 }) {
   const rows = deck.slides.map((s, i) => ({ s, i, r: results[i] }));
@@ -47,6 +59,33 @@ export default function SummaryStep({
     ? Math.round(visionList.reduce((a, x) => a + (x.r.vision.eyeContactPct || 0), 0) / visionList.length)
     : null;
   const totalLookingDown = visionList.reduce((a, x) => a + (x.r.vision.lookingDownCount || 0), 0);
+  const totalDeadAir = done.reduce((a, x) => a + (x.r?.deadAir?.count || 0), 0);
+  const matchingRoundsHistory = useMemo(
+    () => roundsHistory.filter((r) => !r?.deckName || r.deckName === (deck.name || 'ชุดสไลด์')),
+    [roundsHistory, deck.name],
+  );
+  const currentRoundSnapshot = useMemo(() => {
+    const qaAnswered = qaResults.filter((q) => q.answerTranscript?.trim());
+    const qaDirect = qaAnswered.filter(
+      (q) => q.directness === 'direct' || q.evaluation?.directness === 'direct',
+    );
+    return {
+      roundNumber: matchingRoundsHistory.length + 1,
+      deckName: deck.name || 'ชุดสไลด์',
+      slideCount: deck.slides.length,
+      avgWpm,
+      fillersCount: totalFillers,
+      deadAirCount: totalDeadAir,
+      totalDurationSec: Math.round(totalTime),
+      eyeContactPct: avgEyeContact,
+      qaAnsweredCount: qaAnswered.length,
+      qaDirectCount: qaDirect.length,
+      transcriptExcerpt: done
+        .map((x) => `[หน้า ${x.i + 1}] ${x.r?.transcript || ''}`)
+        .join('\n')
+        .slice(0, 5500),
+    };
+  }, [matchingRoundsHistory.length, deck.name, avgWpm, totalFillers, totalDeadAir, totalTime, avgEyeContact, qaResults, done]);
 
   // สำหรับการฟังเสียง
   const audioRef = useRef(null);
@@ -79,6 +118,9 @@ export default function SummaryStep({
   const [aiError, setAiError] = useState(null);
   const [qaEvaluating, setQaEvaluating] = useState(false);
   const [qaEvalError, setQaEvalError] = useState(null);
+  const [cloudUploading, setCloudUploading] = useState(false);
+  const [cloudUploaded, setCloudUploaded] = useState(false);
+  const [cloudError, setCloudError] = useState('');
 
   const unevaluatedQaCount = qaResults.filter(
     (q) => !q.isInterrupt && !q.feedback && !q.directness && q.answerTranscript?.trim(),
@@ -189,6 +231,8 @@ export default function SummaryStep({
         audience,
         rehearsalMode,
         isGroup: false,
+        seriesId: seriesId || undefined,
+        roundNumber: matchingRoundsHistory.length + 1,
         slideCount: deck.slides.length,
         totalDurationSec: totalTime,
         avgWpm,
@@ -545,6 +589,43 @@ export default function SummaryStep({
   const [showMergedVideo, setShowMergedVideo] = useState(false);
   const [moreActionsSlideIdx, setMoreActionsSlideIdx] = useState(null);
 
+  const activeHistoryVideoUrl =
+    mergedVideo?.url || (videoItems.length === 1 ? videoItems[0]?.videoUrl : null);
+
+  useEffect(() => {
+    const sid = savedSessionId || savedSessionIdRef.current;
+    if (!sid || !activeHistoryVideoUrl) return;
+    let active = true;
+    fetch(activeHistoryVideoUrl)
+      .then((r) => r.blob())
+      .then((blob) => {
+        if (active && blob.size > 0) {
+          return saveLocalSessionVideo(sid, blob);
+        }
+        return false;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [savedSessionId, activeHistoryVideoUrl]);
+
+  const handleUploadVideoToCloud = async () => {
+    const sid = savedSessionId || savedSessionIdRef.current;
+    if (!sid || !activeHistoryVideoUrl || cloudUploading) return;
+    setCloudUploading(true);
+    setCloudError('');
+    try {
+      const blob = await fetch(activeHistoryVideoUrl).then((r) => r.blob());
+      await uploadSessionVideoToCloud(sid, blob);
+      setCloudUploaded(true);
+    } catch (err) {
+      setCloudError(err?.message || 'อัปโหลดคลิปขึ้นคลาวด์ไม่สำเร็จ');
+    } finally {
+      setCloudUploading(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     let createdUrl = null;
@@ -671,6 +752,18 @@ export default function SummaryStep({
 
       {activeTab === 'overview' && (
         <>
+          <div className="mt-6">
+            <RoundComparisonCard
+              roundsHistory={matchingRoundsHistory}
+              currentRound={currentRoundSnapshot}
+              deckName={deck.name}
+              audience={audience}
+              mode="solo"
+              aiCache={compareAiCache}
+              onAiCacheChange={onCompareAiCacheChange}
+              onClearHistory={onClearRoundsHistory}
+            />
+          </div>
 
       {/* การ์ดไฟล์รวม (Default สำหรับดาวน์โหลดและแชร์) */}
       {(hasAnyAudio || hasAnyVideo) && (
@@ -733,6 +826,20 @@ export default function SummaryStep({
                     >
                       จัดวางตำแหน่งใหม่
                     </button>
+                    {user && savedSessionId && (
+                      <button
+                        type="button"
+                        onClick={handleUploadVideoToCloud}
+                        disabled={cloudUploading || cloudUploaded}
+                        className="rounded-lg border border-line bg-paper px-3 py-2 text-xs font-medium text-ink transition hover:border-ink disabled:opacity-60 cursor-pointer"
+                      >
+                        {cloudUploaded
+                          ? '✓ บันทึกขึ้นคลาวด์แล้ว'
+                          : cloudUploading
+                            ? 'กำลังอัปโหลดขึ้นคลาวด์...'
+                            : 'บันทึกคลิปขึ้นคลาวด์ (ดูข้ามเครื่อง)'}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1593,7 +1700,7 @@ export default function SummaryStep({
                   : 'ต้องการเริ่มซ้อมใหม่ทั้งหมดตั้งแต่ต้นหรือไม่?',
               confirmText: 'ซ้อมใหม่ทั้งหมด',
             });
-            if (ok) onRestart();
+            if (ok) onRestart(currentRoundSnapshot);
           }}
           className="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
         >

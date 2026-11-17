@@ -53,6 +53,24 @@ function clampBox(box) {
   return { x, y, w, h };
 }
 
+function normalizeLayout(initialLayout) {
+  const next = {
+    slide: initialLayout?.slide !== undefined ? initialLayout.slide : DEFAULT_VIDEO_LAYOUT.slide,
+    camera: initialLayout?.camera !== undefined ? initialLayout.camera : DEFAULT_VIDEO_LAYOUT.camera,
+    qa: initialLayout?.qa !== undefined ? initialLayout.qa : DEFAULT_VIDEO_LAYOUT.qa,
+  };
+  if (!next.slide && !next.camera && !next.qa) {
+    return { ...DEFAULT_VIDEO_LAYOUT };
+  }
+  return next;
+}
+
+const ELEMENT_OPTIONS = [
+  { key: 'slide', label: 'สไลด์' },
+  { key: 'camera', label: 'กล้องผู้พูด' },
+  { key: 'qa', label: 'คำถาม Q&A' },
+];
+
 export default function VideoLayoutModal({
   open,
   initialLayout,
@@ -61,21 +79,13 @@ export default function VideoLayoutModal({
   onCancel,
   onConfirm,
 }) {
-  const [layout, setLayout] = useState(() => ({
-    ...DEFAULT_VIDEO_LAYOUT,
-    ...(initialLayout || {}),
-    qa: initialLayout?.qa || DEFAULT_VIDEO_LAYOUT.qa,
-  }));
+  const [layout, setLayout] = useState(() => normalizeLayout(initialLayout));
   const stageRef = useRef(null);
   const dragRef = useRef(null);
 
   useEffect(() => {
     if (open) {
-      setLayout({
-        ...DEFAULT_VIDEO_LAYOUT,
-        ...(initialLayout || {}),
-        qa: initialLayout?.qa || DEFAULT_VIDEO_LAYOUT.qa,
-      });
+      setLayout(normalizeLayout(initialLayout));
     }
   }, [open, initialLayout]);
 
@@ -111,7 +121,35 @@ export default function VideoLayoutModal({
 
   if (!open) return null;
 
+  const activeCount = ELEMENT_OPTIONS.filter((el) => Boolean(layout[el.key])).length;
+
+  const toggleElement = (key) => {
+    setLayout((prev) => {
+      const currentlyOn = Boolean(prev[key]);
+      if (currentlyOn) {
+        const count = ELEMENT_OPTIONS.filter((el) => Boolean(prev[el.key])).length;
+        if (count <= 1) return prev; // อย่างน้อยต้องเหลือ 1 องค์ประกอบ
+        return { ...prev, [key]: null };
+      }
+      return {
+        ...prev,
+        [key]: initialLayout?.[key] || DEFAULT_VIDEO_LAYOUT[key],
+      };
+    });
+  };
+
+  const removeElement = (key, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLayout((prev) => {
+      const count = ELEMENT_OPTIONS.filter((el) => Boolean(prev[el.key])).length;
+      if (count <= 1) return prev;
+      return { ...prev, [key]: null };
+    });
+  };
+
   const startDrag = (target, e) => {
+    if (!layout[target]) return;
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = {
@@ -161,18 +199,43 @@ export default function VideoLayoutModal({
           </button>
         </div>
 
-        {/* แบบสำเร็จรูป */}
-        <div className="flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setLayout(p.layout)}
-              className="rounded-lg border border-line bg-paper px-3 py-1.5 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-white cursor-pointer"
-            >
-              {p.label}
-            </button>
-          ))}
+        {/* แบบสำเร็จรูป + เพิ่ม/ลบองค์ประกอบ */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setLayout(p.layout)}
+                className="rounded-lg border border-line bg-paper px-2.5 py-1.5 text-xs font-medium text-ink transition hover:border-ink/40 hover:bg-white cursor-pointer"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ELEMENT_OPTIONS.map((el) => {
+              const active = Boolean(layout[el.key]);
+              const canRemove = active && activeCount > 1;
+              return (
+                <button
+                  key={el.key}
+                  type="button"
+                  onClick={() => toggleElement(el.key)}
+                  disabled={active && !canRemove}
+                  title={active ? `ลบ${el.label}ออกจากวิดีโอ` : `เพิ่ม${el.label}เข้าวิดีโอ`}
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition cursor-pointer disabled:cursor-not-allowed ${
+                    active
+                      ? 'border-ink/40 bg-ink text-white hover:bg-ink/85'
+                      : 'border-dashed border-faint bg-white text-muted hover:border-ink hover:text-ink'
+                  }`}
+                >
+                  {active ? `✓ ${el.label} ×` : `+ เพิ่ม ${el.label}`}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* พื้นที่พรีวิว 16:9 แบบลากวาง */}
@@ -181,61 +244,87 @@ export default function VideoLayoutModal({
           className="relative aspect-video w-full overflow-hidden rounded-xl border border-line bg-zinc-100 select-none"
         >
           {/* กล่องสไลด์ */}
-          <div
-            onPointerDown={(e) => startDrag('slide', e)}
-            style={{
-              left: `${layout.slide.x * 100}%`,
-              top: `${layout.slide.y * 100}%`,
-              width: `${layout.slide.w * 100}%`,
-              height: `${layout.slide.h * 100}%`,
-            }}
-            className="absolute z-10 overflow-hidden rounded-lg border-2 border-dashed border-ink/50 bg-white shadow-xs cursor-move"
-          >
-            {previewSlide?.src || previewSlide?.url ? (
-              <img
-                src={previewSlide.src || previewSlide.url}
-                alt="ตัวอย่างสไลด์"
-                draggable={false}
-                className="h-full w-full object-contain pointer-events-none"
-              />
-            ) : (
-              <div className="flex h-full w-full flex-col justify-center px-4">
-                <p className="text-xs font-semibold text-ink truncate">{previewSlide?.title || 'หน้าสไลด์'}</p>
-                <p className="mt-1 text-[10px] text-muted">ลากเพื่อย้ายตำแหน่งสไลด์</p>
-              </div>
-            )}
-            <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-ink/80 px-1.5 py-0.5 text-[10px] font-medium text-white">
-              สไลด์ (ลากได้)
-            </span>
-          </div>
+          {layout.slide && (
+            <div
+              onPointerDown={(e) => startDrag('slide', e)}
+              style={{
+                left: `${layout.slide.x * 100}%`,
+                top: `${layout.slide.y * 100}%`,
+                width: `${layout.slide.w * 100}%`,
+                height: `${layout.slide.h * 100}%`,
+              }}
+              className="absolute z-10 overflow-hidden rounded-lg border-2 border-dashed border-ink/50 bg-white shadow-xs cursor-move"
+            >
+              {previewSlide?.src || previewSlide?.url ? (
+                <img
+                  src={previewSlide.src || previewSlide.url}
+                  alt="ตัวอย่างสไลด์"
+                  draggable={false}
+                  className="h-full w-full object-contain pointer-events-none"
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col justify-center px-4">
+                  <p className="text-xs font-semibold text-ink truncate">{previewSlide?.title || 'หน้าสไลด์'}</p>
+                  <p className="mt-1 text-[10px] text-muted">ลากเพื่อย้ายตำแหน่งสไลด์</p>
+                </div>
+              )}
+              <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-ink/80 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                สไลด์ (ลากได้)
+              </span>
+              {activeCount > 1 && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => removeElement('slide', e)}
+                  aria-label="ลบสไลด์"
+                  className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded bg-black/65 text-xs text-white transition hover:bg-accent cursor-pointer"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
 
           {/* กล่องกล้องผู้พูด */}
-          <div
-            onPointerDown={(e) => startDrag('camera', e)}
-            style={{
-              left: `${layout.camera.x * 100}%`,
-              top: `${layout.camera.y * 100}%`,
-              width: `${layout.camera.w * 100}%`,
-              height: `${layout.camera.h * 100}%`,
-            }}
-            className="absolute z-20 overflow-hidden rounded-lg border-2 border-accent bg-zinc-900 shadow-md cursor-move"
-          >
-            {previewVideoUrl ? (
-              <video
-                src={previewVideoUrl}
-                muted
-                playsInline
-                className="h-full w-full object-cover -scale-x-100 pointer-events-none"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-[11px] text-white/80">
-                กล้องผู้พูด
-              </div>
-            )}
-            <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
-              กล้อง (ลากได้)
-            </span>
-          </div>
+          {layout.camera && (
+            <div
+              onPointerDown={(e) => startDrag('camera', e)}
+              style={{
+                left: `${layout.camera.x * 100}%`,
+                top: `${layout.camera.y * 100}%`,
+                width: `${layout.camera.w * 100}%`,
+                height: `${layout.camera.h * 100}%`,
+              }}
+              className="absolute z-20 overflow-hidden rounded-lg border-2 border-accent bg-zinc-900 shadow-md cursor-move"
+            >
+              {previewVideoUrl ? (
+                <video
+                  src={previewVideoUrl}
+                  muted
+                  playsInline
+                  className="h-full w-full object-cover -scale-x-100 pointer-events-none"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-[11px] text-white/80">
+                  กล้องผู้พูด
+                </div>
+              )}
+              <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium text-white">
+                กล้อง (ลากได้)
+              </span>
+              {activeCount > 1 && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => removeElement('camera', e)}
+                  aria-label="ลบกล้องผู้พูด"
+                  className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded bg-black/65 text-xs text-white transition hover:bg-accent cursor-pointer"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
 
           {/* กล่องคำถาม Q&A (แสดงเฉพาะช่วง Q&A) */}
           {layout.qa && (
@@ -249,9 +338,22 @@ export default function VideoLayoutModal({
               }}
               className="absolute z-30 overflow-hidden rounded-lg border-2 border-dashed border-ok bg-white/95 p-2 shadow-sm cursor-move"
             >
-              <span className="inline-block rounded bg-ok px-1.5 py-0.5 text-[9px] font-semibold text-white">
-                คำถาม Q&A (ลากได้)
-              </span>
+              <div className="flex items-center justify-between gap-1">
+                <span className="inline-block rounded bg-ok px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                  คำถาม Q&A (ลากได้)
+                </span>
+                {activeCount > 1 && (
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => removeElement('qa', e)}
+                    aria-label="ลบคำถาม Q&A"
+                    className="flex size-4 items-center justify-center rounded bg-black/60 text-[11px] text-white transition hover:bg-accent cursor-pointer"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
               <p className="mt-1 text-[10px] leading-snug text-ink/80 line-clamp-3">
                 ตัวอย่างข้อความคำถามกรรมการจะแสดงในกรอบนี้ช่วงถาม-ตอบ
               </p>
@@ -261,48 +363,54 @@ export default function VideoLayoutModal({
 
         {/* แถบปรับขนาด */}
         <div className="grid gap-4 sm:grid-cols-3 rounded-xl border border-line bg-paper/60 p-3.5">
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-ink">ขนาดสไลด์</span>
-              <span className="font-mono text-muted">{Math.round(layout.slide.w * 100)}%</span>
+          {layout.slide && (
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-ink">ขนาดสไลด์</span>
+                <span className="font-mono text-muted">{Math.round(layout.slide.w * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={45}
+                max={100}
+                value={Math.round(layout.slide.w * 100)}
+                onChange={(e) => updateWidth('slide', Number(e.target.value))}
+                className="mt-1.5 w-full accent-ink cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={45}
-              max={100}
-              value={Math.round(layout.slide.w * 100)}
-              onChange={(e) => updateWidth('slide', Number(e.target.value))}
-              className="mt-1.5 w-full accent-ink cursor-pointer"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-ink">ขนาดกล้องผู้พูด</span>
-              <span className="font-mono text-muted">{Math.round(layout.camera.w * 100)}%</span>
+          )}
+          {layout.camera && (
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-ink">ขนาดกล้องผู้พูด</span>
+                <span className="font-mono text-muted">{Math.round(layout.camera.w * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={15}
+                max={42}
+                value={Math.round(layout.camera.w * 100)}
+                onChange={(e) => updateWidth('camera', Number(e.target.value))}
+                className="mt-1.5 w-full accent-accent cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={15}
-              max={42}
-              value={Math.round(layout.camera.w * 100)}
-              onChange={(e) => updateWidth('camera', Number(e.target.value))}
-              className="mt-1.5 w-full accent-accent cursor-pointer"
-            />
-          </div>
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-ink">ขนาดกล่อง Q&A</span>
-              <span className="font-mono text-muted">{Math.round((layout.qa?.w || 0.23) * 100)}%</span>
+          )}
+          {layout.qa && (
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-ink">ขนาดกล่อง Q&A</span>
+                <span className="font-mono text-muted">{Math.round(layout.qa.w * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={18}
+                max={80}
+                value={Math.round(layout.qa.w * 100)}
+                onChange={(e) => updateWidth('qa', Number(e.target.value))}
+                className="mt-1.5 w-full accent-ok cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={18}
-              max={80}
-              value={Math.round((layout.qa?.w || 0.23) * 100)}
-              onChange={(e) => updateWidth('qa', Number(e.target.value))}
-              className="mt-1.5 w-full accent-ok cursor-pointer"
-            />
-          </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2.5 pt-1">

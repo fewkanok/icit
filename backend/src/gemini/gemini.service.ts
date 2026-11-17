@@ -109,7 +109,7 @@ export class GeminiService {
   }
 
   private async askJson<T>(contents: unknown): Promise<T> {
-    const { ai, model } = this.getClient();
+    const { ai, model } = this.getClient('v1beta');
     const candidates = Array.from(
       new Set([model, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite']),
     );
@@ -372,6 +372,65 @@ ${timelineBlock}
   ],
   "topStrengths": ["<จุดเด่น 1-2 ข้อ>"],
   "topImprovements": ["<สิ่งที่ควรปรับปรุง 1-2 ข้อ>"]
+}`;
+
+    return this.askJson(prompt);
+  }
+
+  async compareRounds(input: {
+    deckName: string;
+    audience?: AudienceType;
+    mode?: 'solo' | 'group';
+    previousRound: {
+      roundNumber: number;
+      slideCount?: number;
+      avgWpm: number;
+      fillersCount: number;
+      deadAirCount: number;
+      totalDurationSec: number;
+      eyeContactPct?: number | null;
+      qaAnsweredCount?: number;
+      qaDirectCount?: number;
+      transcriptExcerpt?: string;
+    };
+    currentRound: {
+      roundNumber: number;
+      slideCount?: number;
+      avgWpm: number;
+      fillersCount: number;
+      deadAirCount: number;
+      totalDurationSec: number;
+      eyeContactPct?: number | null;
+      qaAnsweredCount?: number;
+      qaDirectCount?: number;
+      transcriptExcerpt?: string;
+    };
+  }) {
+    const fmt = (r: typeof input.previousRound) =>
+      `รอบที่ ${r.roundNumber}${r.slideCount ? ` (ซ้อมจริง ${r.slideCount} หน้า)` : ''}: ความเร็ว ${r.avgWpm} คำ/นาที, คำติดปาก ${r.fillersCount} ครั้ง, เงียบค้าง ${r.deadAirCount} ครั้ง, เวลารวม ${Math.round(r.totalDurationSec)} วินาที${
+        r.eyeContactPct !== null && r.eyeContactPct !== undefined ? `, สบตากล้อง ${r.eyeContactPct}%` : ''
+      }${r.qaAnsweredCount ? `, ตอบ Q&A ${r.qaDirectCount ?? 0}/${r.qaAnsweredCount} ข้อตรงประเด็น` : ''}
+ตัวอย่างคำพูด: ${r.transcriptExcerpt?.trim() || '(ไม่มีข้อความถอดเสียง)'}`;
+
+    const modeNote =
+      input.mode === 'group'
+        ? '\nหมายเหตุ: เป็นการซ้อมพรีเซนต์แบบกลุ่ม (มีแท็ก [ผู้พูด: ชื่อ] กำกับอยู่) ให้ระบุพัฒนาการของทีมและสมาชิกด้วย'
+        : '';
+
+    const prompt = `คุณคือโค้ชช่วยซ้อมพรีเซนต์ เปรียบเทียบพัฒนาการการนำเสนอเรื่อง "${input.deckName}" (ผู้ฟัง: ${this.audienceDesc(input.audience)})${modeNote}
+หมายเหตุสำคัญ: ให้ยึดจำนวนสไลด์ที่ซ้อมจริงตามที่ระบุในแต่ละรอบ (อย่าเดาจำนวนหน้าจากชื่อชุดสไลด์)
+หมายเหตุเกณฑ์ความเร็วพูดภาษาไทยของระบบนี้: 90-205 คำ/นาที ถือว่า "กำลังดี" (ต่ำกว่า 90 คือช้าไป, เกิน 205 คือเร็วไป) ห้ามบอกว่าเร็วเกินไปถ้ายังไม่เกิน 205 คำ/นาที
+
+${fmt(input.previousRound)}
+
+${fmt(input.currentRound)}
+
+วิเคราะห์เปรียบเทียบระหว่างรอบที่ ${input.previousRound.roundNumber} กับรอบที่ ${input.currentRound.roundNumber} เป็น JSON ภาษาไทยสั้น กระชับ เข้าใจง่าย:
+{
+  "headline": "<สรุปพัฒนาการภาพรวม 1 ประโยคสั้นๆ>",
+  "improved": ["<จุดที่ดีขึ้นอย่างเห็นได้ชัด 1-3 ข้อ>"],
+  "stillToFix": ["<จุดที่ยังควรปรับต่อในรอบหน้า 1-2 ข้อ>"],
+  "nextTip": "<คำแนะนำสั้นๆ สำหรับการซ้อมรอบถัดไป 1 ประโยค>"
 }`;
 
     return this.askJson(prompt);

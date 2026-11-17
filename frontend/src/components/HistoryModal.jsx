@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
-import { fetchSessionDetail, fetchSessions } from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  deleteCloudVideo,
+  fetchCloudVideoUrl,
+  fetchSessionDetail,
+  fetchSessions,
+} from '../lib/api';
 import { formatTime } from '../lib/metrics';
+import { deleteLocalSessionVideo, getLocalSessionVideo } from '../lib/videoStore';
 import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
+import RoundComparisonCard from './RoundComparisonCard';
 
 export default function HistoryModal({ open, onClose }) {
   const [sessions, setSessions] = useState([]);
@@ -16,6 +23,8 @@ export default function HistoryModal({ open, onClose }) {
   const [slidePage, setSlidePage] = useState(1);
   const [qaPage, setQaPage] = useState(1);
   const [sessionPage, setSessionPage] = useState(1);
+  const [videoInfo, setVideoInfo] = useState(null); // { url, source: 'local' | 'cloud' }
+  const [videoLoading, setVideoLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -37,6 +46,73 @@ export default function HistoryModal({ open, onClose }) {
       active = false;
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setVideoInfo(null);
+      return;
+    }
+    let active = true;
+    let localUrlToRevoke = null;
+    setVideoLoading(true);
+    setVideoInfo(null);
+
+    (async () => {
+      const local = await getLocalSessionVideo(selected.id);
+      if (!active) {
+        if (local?.url) URL.revokeObjectURL(local.url);
+        return;
+      }
+      if (local?.url) {
+        localUrlToRevoke = local.url;
+        setVideoInfo({ url: local.url, source: 'local', size: local.size });
+        setVideoLoading(false);
+        return;
+      }
+      if (selected.videoPath) {
+        const cloud = await fetchCloudVideoUrl(selected.id).catch(() => null);
+        if (active && cloud?.url) {
+          setVideoInfo({ url: cloud.url, source: 'cloud' });
+        }
+      }
+      if (active) setVideoLoading(false);
+    })();
+
+    return () => {
+      active = false;
+      if (localUrlToRevoke) URL.revokeObjectURL(localUrlToRevoke);
+    };
+  }, [selected?.id, selected?.videoPath]);
+
+  const seriesComparison = useMemo(() => {
+    if (!selected?.seriesId) return { prevRounds: [], currentRound: null };
+    const sameSeries = sessions
+      .filter((s) => s.seriesId === selected.seriesId)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const idx = sameSeries.findIndex((s) => s.id === selected.id);
+    if (idx <= 0) return { prevRounds: [], currentRound: null };
+    const toSnapshot = (s, i) => ({
+      roundNumber: s.roundNumber || i + 1,
+      slideCount: s.slideCount || 1,
+      avgWpm: s.avgWpm || 0,
+      fillersCount: 0,
+      deadAirCount: 0,
+      totalDurationSec: s.totalDurationSec || 0,
+      eyeContactPct: s.avgEyeContactPct ?? null,
+      members: Array.isArray(s.participants)
+        ? s.participants.map((p) => ({
+            name: p.displayName,
+            avgWpm: p.avgWpm || 0,
+            fillersCount: 0,
+            eyeContactPct: p.avgEyeContactPct ?? null,
+          }))
+        : [],
+    });
+    return {
+      prevRounds: sameSeries.slice(0, idx).map((s, i) => toSnapshot(s, i)),
+      currentRound: toSnapshot(selected, idx),
+    };
+  }, [selected, sessions]);
 
   if (!open) return null;
 
@@ -78,7 +154,7 @@ export default function HistoryModal({ open, onClose }) {
 
       {/* หมายเหตุเรื่องไฟล์วิดีโอ/เสียง */}
       <div className="rounded-xl border border-line bg-paper px-4 py-3 text-xs text-muted">
-        หมายเหตุ: หน้าประวัติบันทึกเฉพาะสถิติ ข้อความถอดเสียง และคำแนะนำ AI (ไม่ได้บันทึกไฟล์วิดีโอและเสียง)
+        รองรับทั้งโหมดเดี่ยวและโหมดกลุ่ม · คลิปวิดีโอที่บันทึกจากเครื่องนี้ดูย้อนหลังได้ฟรีทันที (และสามารถอัปโหลดขึ้นคลาวด์ได้สูงสุด 3 คลิป/คน เพื่อดูข้ามเครื่อง)
       </div>
 
       {error && <p className="text-xs text-accent">{error}</p>}
@@ -140,7 +216,19 @@ export default function HistoryModal({ open, onClose }) {
               <div className="rounded-xl border border-line bg-white p-5 space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-ink">{selected.deckName}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold text-ink">{selected.deckName}</h2>
+                  {selected.isGroup && (
+                    <span className="rounded-full border border-ink/20 bg-paper px-2 py-0.5 text-[10px] font-medium text-ink">
+                      ซ้อมกลุ่ม{selected.roomCode ? ` · ${selected.roomCode}` : ''}
+                    </span>
+                  )}
+                  {selected.roundNumber > 1 && (
+                    <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-[10px] text-muted border border-line">
+                      รอบที่ {selected.roundNumber}
+                    </span>
+                  )}
+                </div>
                 <p className="mt-0.5 text-xs text-muted">
                   {new Date(selected.createdAt).toLocaleString('th-TH')}
                   {selected.audience ? ` · กลุ่มผู้ฟัง: ${selected.audience}` : ''}
@@ -171,6 +259,105 @@ export default function HistoryModal({ open, onClose }) {
               </div>
             </div>
           </div>
+
+          {/* วิดีโอย้อนหลัง (IndexedDB ในเครื่อง หรือ Supabase Storage) */}
+          {(videoLoading || videoInfo?.url) && (
+            <div className="rounded-xl border border-line bg-white p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-ink">คลิปวิดีโอย้อนหลัง</p>
+                  {videoInfo?.source && (
+                    <span className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted">
+                      {videoInfo.source === 'local'
+                        ? `บันทึกในเครื่องนี้ (ฟรี${videoInfo.size ? ` · ${(videoInfo.size / (1024 * 1024)).toFixed(1)} MB` : ''})`
+                        : 'จากคลาวด์'}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {videoInfo?.source === 'local' && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await deleteLocalSessionVideo(selected.id);
+                        if (videoInfo.url) URL.revokeObjectURL(videoInfo.url);
+                        if (selected.videoPath) {
+                          const cloud = await fetchCloudVideoUrl(selected.id).catch(() => null);
+                          setVideoInfo(cloud?.url ? { url: cloud.url, source: 'cloud' } : null);
+                        } else {
+                          setVideoInfo(null);
+                        }
+                      }}
+                      className="rounded-md border border-line px-2.5 py-1 text-[11px] text-muted hover:text-accent cursor-pointer"
+                    >
+                      ลบคลิปออกจากเครื่อง
+                    </button>
+                  )}
+                  {selected.videoPath && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await deleteCloudVideo(selected.id).catch(() => {});
+                        setSelected((prev) => (prev ? { ...prev, videoPath: null } : prev));
+                        setSessions((prev) =>
+                          prev.map((x) => (x.id === selected.id ? { ...x, videoPath: null } : x)),
+                        );
+                        if (videoInfo?.source === 'cloud') setVideoInfo(null);
+                      }}
+                      className="rounded-md border border-line px-2.5 py-1 text-[11px] text-muted hover:text-accent cursor-pointer"
+                    >
+                      ลบคลิปจากคลาวด์
+                    </button>
+                  )}
+                </div>
+              </div>
+              {videoLoading ? (
+                <p className="text-xs text-muted">กำลังโหลดคลิปวิดีโอ...</p>
+              ) : videoInfo?.url ? (
+                <video
+                  src={videoInfo.url}
+                  controls
+                  playsInline
+                  className="w-full max-h-[380px] rounded-lg border border-line bg-black"
+                />
+              ) : null}
+            </div>
+          )}
+
+          {/* สถิติรายสมาชิก (สำหรับโหมดกลุ่ม) */}
+          {selected.isGroup && Array.isArray(selected.participants) && selected.participants.length > 0 && (
+            <div className="rounded-xl border border-line bg-white p-5 space-y-3">
+              <p className="text-sm font-semibold text-ink">สมาชิกในห้อง ({selected.participants.length} คน)</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {selected.participants.map((p) => (
+                  <div
+                    key={p.id || p.displayName}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-line bg-paper/40 px-3 py-2 text-xs"
+                  >
+                    <span className="font-medium text-ink">
+                      {p.displayName}
+                      {p.role === 'host' ? ' (หัวหน้ากลุ่ม)' : ''}
+                    </span>
+                    <span className="font-mono text-[11px] text-muted">
+                      {formatTime(p.durationSec || 0)} · {p.avgWpm || 0} WPM
+                      {p.avgEyeContactPct != null ? ` · ตา ${p.avgEyeContactPct}%` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* เทียบกับรอบก่อนในชุดซ้อมเดียวกัน */}
+          {seriesComparison.prevRounds.length > 0 && seriesComparison.currentRound && (
+            <RoundComparisonCard
+              roundsHistory={seriesComparison.prevRounds}
+              currentRound={seriesComparison.currentRound}
+              deckName={selected.deckName}
+              audience={selected.audience || 'general'}
+              mode={selected.isGroup ? 'group' : 'solo'}
+            />
+          )}
 
           {slides.length > 0 && (
             <SummaryCharts
@@ -496,7 +683,24 @@ export default function HistoryModal({ open, onClose }) {
                 className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-paper cursor-pointer"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-ink">{s.deckName}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="truncate text-sm font-medium text-ink">{s.deckName}</p>
+                    {s.isGroup && (
+                      <span className="rounded-full border border-ink/20 bg-paper px-2 py-0.5 text-[10px] font-medium text-ink">
+                        กลุ่ม
+                      </span>
+                    )}
+                    {s.roundNumber > 1 && (
+                      <span className="rounded-full border border-line bg-paper px-2 py-0.5 font-mono text-[10px] text-muted">
+                        รอบ {s.roundNumber}
+                      </span>
+                    )}
+                    {s.videoPath && (
+                      <span className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted">
+                        คลิปคลาวด์
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-0.5 text-xs text-muted">
                     {new Date(s.createdAt).toLocaleString('th-TH')} · {s.slideCount} หน้า ·{' '}
                     {formatTime(s.totalDurationSec)} · {s.avgWpm} คำ/นาที

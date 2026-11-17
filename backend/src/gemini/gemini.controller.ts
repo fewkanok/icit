@@ -4,6 +4,7 @@ import { SupabaseAuthGuard, type AuthUserPayload } from '../auth/auth.guard.js';
 import { TOKEN_COSTS, TokensService } from '../tokens/tokens.service.js';
 import {
   CheckSlideDto,
+  CompareRoundsDto,
   InterruptQuestionDto,
   QaEvaluateDto,
   QaGenerateDto,
@@ -128,6 +129,24 @@ export class GeminiController {
         const res = (await this.geminiService.analyzeSummary(body)) as { listenerSummary?: string };
         if (!res || typeof res.listenerSummary !== 'string' || !res.listenerSummary.trim()) {
           throw new BadGatewayException('AI ไม่สามารถวิเคราะห์สรุปผลได้ กรุณาลองใหม่');
+        }
+        return res;
+      },
+    );
+  }
+
+  @Throttle({ default: { limit: 6, ttl: 60000 } })
+  @Post('compare-rounds')
+  compareRounds(@Req() req: { user: AuthUserPayload }, @Body() body: CompareRoundsDto) {
+    return this.runWithToken(
+      req.user.id,
+      TOKEN_COSTS.ROUND_COMPARE,
+      'AI_COMPARE',
+      'วิเคราะห์เปรียบเทียบพัฒนาการระหว่างรอบ',
+      async () => {
+        const res = (await this.geminiService.compareRounds(body)) as { headline?: string };
+        if (!res || typeof res.headline !== 'string' || !res.headline.trim()) {
+          throw new BadGatewayException('AI ไม่สามารถวิเคราะห์เปรียบเทียบได้ กรุณาลองใหม่');
         }
         return res;
       },

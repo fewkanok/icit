@@ -1,4 +1,4 @@
-import { Component, useEffect, useState } from 'react';
+import { Component, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import ModeStep from './components/ModeStep';
 import UploadStep from './components/UploadStep';
@@ -100,6 +100,15 @@ export default function App() {
         : 'mode',
   );
   const [deck, setDeck] = useState(null); // { name, slides }
+  const [slideSelection, setSlideSelection] = useState({ deckRef: null, indices: null });
+  const selectedSlideIndices =
+    slideSelection.deckRef === deck ? slideSelection.indices : null;
+  const activeDeck = useMemo(() => {
+    if (!deck) return null;
+    if (!selectedSlideIndices || selectedSlideIndices.length === 0) return deck;
+    const filtered = selectedSlideIndices.map((i) => deck.slides[i]).filter(Boolean);
+    return filtered.length > 0 ? { ...deck, slides: filtered } : deck;
+  }, [deck, selectedSlideIndices]);
   const [rehearsalMode, setRehearsalMode] = useState('per_slide'); // per_slide | continuous
   const [audience, setAudience] = useState('general');
   const [timeBudget, setTimeBudget] = useState({ presentMinutes: 5, qaMinutes: 5 });
@@ -109,13 +118,27 @@ export default function App() {
   const [interruptResults, setInterruptResults] = useState({}); // { [slideIndex]: evalObj }
   const [qaResults, setQaResults] = useState([]);
   const [aiSummary, setAiSummary] = useState(null);
+  const [compareAiCache, setCompareAiCache] = useState({});
   const [savedSessionId, setSavedSessionId] = useState(null);
+  const [soloSeriesId, setSoloSeriesId] = useState(() => `solo_${Date.now().toString(36)}`);
   const [rehearsalIndex, setRehearsalIndex] = useState(0); // หน้าสไลด์ที่จะซ้อม
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(Boolean(supabase));
   const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [linePdfLoading, setLinePdfLoading] = useState(null);
+  const [soloRoundsHistory, setSoloRoundsHistory] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      // ล้างค่าเก่าที่เคยค้างใน localStorage (ย้ายมาใช้ sessionStorage เฉพาะเซสชันปัจจุบัน)
+      window.localStorage.removeItem('icit_solo_rounds');
+      const raw = window.sessionStorage.getItem('icit_solo_rounds');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.slice(-10) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     const onTokensUpdated = (e) => {
@@ -552,10 +575,10 @@ export default function App() {
       />
       <AppErrorBoundary>
         <main className="flex-1">
-        {historyOpen ? (
+        {historyOpen && (
           <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
-        ) : (
-          <>
+        )}
+        <div className={historyOpen ? 'hidden' : ''}>
             {step === 'mode' && (
           <ModeStep
             rehearsalMode={rehearsalMode}
@@ -591,6 +614,18 @@ export default function App() {
         {step === 'upload' && (
           <UploadStep
             deck={deck}
+            selectedIndices={selectedSlideIndices}
+            onSelectedIndicesChange={(nextIndices) => {
+              setSlideSelection({ deckRef: deck, indices: nextIndices });
+              setResults({});
+              setInterruptResults({});
+              setQaResults([]);
+              setAiSummary(null);
+              setSavedSessionId(null);
+              setSoloSeriesId(`solo_${Date.now().toString(36)}`);
+              resetConfirmSuppressions();
+              setRehearsalIndex(0);
+            }}
             externalProgress={linePdfLoading}
             rehearsalMode={rehearsalMode}
             onRehearsalModeChange={setRehearsalMode}
@@ -602,7 +637,16 @@ export default function App() {
             onInterruptToggle={() => setInterruptEnabled((v) => !v)}
             cameraEnabled={cameraEnabled}
             onCameraToggle={() => setCameraEnabled((v) => !v)}
-            onBackToMode={() => setStep('mode')}
+            onBackToMode={() => {
+              setSoloRoundsHistory([]);
+              setCompareAiCache({});
+              try {
+                window.sessionStorage.removeItem('icit_solo_rounds');
+              } catch {
+                // ignore
+              }
+              setStep('mode');
+            }}
             onDeckChange={(d) => {
               setDeck(d);
               setResults({});
@@ -610,6 +654,7 @@ export default function App() {
               setQaResults([]);
               setAiSummary(null);
               setSavedSessionId(null);
+              setSoloSeriesId(`solo_${Date.now().toString(36)}`);
               resetConfirmSuppressions();
               setRehearsalIndex(0);
             }}
@@ -620,9 +665,9 @@ export default function App() {
           />
         )}
 
-        {step === 'rehearsal' && deck && (
+        {step === 'rehearsal' && activeDeck && (
           <RehearsalStep
-            deck={deck}
+            deck={activeDeck}
             rehearsalMode={rehearsalMode}
             audience={audience}
             timeBudget={timeBudget}
@@ -646,9 +691,9 @@ export default function App() {
           />
         )}
 
-        {step === 'qa' && deck && (
+        {step === 'qa' && activeDeck && (
           <QaStep
-            deck={deck}
+            deck={activeDeck}
             audience={audience}
             timeBudget={timeBudget}
             cameraEnabled={cameraEnabled}
@@ -661,10 +706,10 @@ export default function App() {
           />
         )}
 
-        {step === 'summary' && deck && (
+        {step === 'summary' && activeDeck && (
           <SummaryStep
             user={user}
-            deck={deck}
+            deck={activeDeck}
             audience={audience}
             rehearsalMode={rehearsalMode}
             timeBudget={timeBudget}
@@ -673,6 +718,7 @@ export default function App() {
             aiSummary={aiSummary}
             onAiSummaryChange={setAiSummary}
             savedSessionId={savedSessionId}
+            seriesId={soloSeriesId}
             onSavedSessionIdChange={setSavedSessionId}
             onUpdateQaResults={setQaResults}
             onBack={() => setStep(allQaResults.length > 0 ? 'qa' : 'rehearsal')}
@@ -681,7 +727,33 @@ export default function App() {
               setStep('rehearsal');
             }}
             onUpdateTranscript={handleUpdateTranscript}
-            onRestart={() => {
+            roundsHistory={soloRoundsHistory}
+            compareAiCache={compareAiCache}
+            onCompareAiCacheChange={(key, val) =>
+              setCompareAiCache((prev) => ({ ...prev, [key]: val }))
+            }
+            onClearRoundsHistory={() => {
+              setSoloRoundsHistory([]);
+              setCompareAiCache({});
+              try {
+                window.sessionStorage.removeItem('icit_solo_rounds');
+              } catch {
+                // ignore
+              }
+            }}
+            onRestart={(roundSnapshot) => {
+              setCompareAiCache({});
+              if (roundSnapshot && typeof roundSnapshot === 'object') {
+                setSoloRoundsHistory((prev) => {
+                  const next = [...prev, roundSnapshot].slice(-10);
+                  try {
+                    window.sessionStorage.setItem('icit_solo_rounds', JSON.stringify(next));
+                  } catch {
+                    // ignore
+                  }
+                  return next;
+                });
+              }
               Object.values(results).forEach((r) => {
                 if (r?.audioUrl) URL.revokeObjectURL(r.audioUrl);
                 if (r?.videoUrl) URL.revokeObjectURL(r.videoUrl);
@@ -691,14 +763,14 @@ export default function App() {
               setQaResults([]);
               setAiSummary(null);
               setSavedSessionId(null);
+              setSoloSeriesId(`solo_${Date.now().toString(36)}`);
               resetConfirmSuppressions();
               setRehearsalIndex(0);
               setStep('rehearsal');
             }}
           />
         )}
-          </>
-        )}
+          </div>
         </main>
       </AppErrorBoundary>
 

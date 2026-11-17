@@ -219,6 +219,85 @@ export class SummaryAnalyzeDto {
   timelineEvents?: SummaryTimelineEventDto[];
 }
 
+export class CompareRoundSummaryDto {
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  roundNumber!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  slideCount?: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1000)
+  avgWpm!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  fillersCount!: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(10000)
+  deadAirCount!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(86400)
+  totalDurationSec!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  eyeContactPct?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  qaAnsweredCount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  qaDirectCount?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(6000)
+  transcriptExcerpt?: string;
+}
+
+export class CompareRoundsDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(300)
+  deckName!: string;
+
+  @IsOptional()
+  @IsIn(AUDIENCES)
+  audience?: (typeof AUDIENCES)[number];
+
+  @IsOptional()
+  @IsIn(['solo', 'group'])
+  mode?: 'solo' | 'group';
+
+  @ValidateNested()
+  @Type(() => CompareRoundSummaryDto)
+  previousRound!: CompareRoundSummaryDto;
+
+  @ValidateNested()
+  @Type(() => CompareRoundSummaryDto)
+  currentRound!: CompareRoundSummaryDto;
+}
+
 export class TtsDto {
   @IsString()
   @IsNotEmpty()

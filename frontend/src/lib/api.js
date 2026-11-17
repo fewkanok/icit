@@ -79,6 +79,51 @@ export function fetchSessionDetail(id) {
   return getJson(`/api/sessions/${encodeURIComponent(id)}`);
 }
 
+export function prepareCloudVideoUpload(sessionId, payload) {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/video/prepare`, payload, 30000);
+}
+
+export function confirmCloudVideoUpload(sessionId, payload) {
+  return postJson(`/api/sessions/${encodeURIComponent(sessionId)}/video/confirm`, payload, 30000);
+}
+
+export function fetchCloudVideoUrl(sessionId) {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/video-url`);
+}
+
+export async function deleteCloudVideo(sessionId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/video`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || 'ลบคลิปออกจากคลาวด์ไม่สำเร็จ');
+  }
+  return res.json();
+}
+
+export async function uploadSessionVideoToCloud(sessionId, blob) {
+  if (!sessionId || !blob) {
+    throw new Error('ไม่พบไฟล์วิดีโอสำหรับอัปโหลด');
+  }
+  const mimeType = blob.type || 'video/mp4';
+  const prep = await prepareCloudVideoUpload(sessionId, {
+    fileSizeBytes: blob.size,
+    mimeType,
+  });
+  const uploadRes = await fetch(prep.signedUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType },
+    body: blob,
+  });
+  if (!uploadRes.ok) {
+    throw new Error('อัปโหลดไฟล์ไปยัง Supabase Storage ไม่สำเร็จ');
+  }
+  return confirmCloudVideoUpload(sessionId, { path: prep.path });
+}
+
 export function checkSlideWithAi(payload) {
   return postJson('/api/gemini/check-slide', payload, 60000);
 }
@@ -93,6 +138,10 @@ export function generateInterruptQuestion(payload) {
 
 export function evaluateQaAnswer(payload) {
   return postJson('/api/gemini/qa/evaluate', payload, 60000);
+}
+
+export function compareRoundsWithAi(payload) {
+  return postJson('/api/gemini/compare-rounds', payload, 60000);
 }
 
 export function analyzeSummaryWithAi(payload) {
