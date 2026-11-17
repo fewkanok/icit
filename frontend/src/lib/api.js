@@ -123,3 +123,37 @@ export async function deleteGroupClips(roomCode) {
   });
   return res.json().catch(() => ({ ok: true }));
 }
+
+export async function fetchLangmindPreset(code) {
+  const cleanCode = encodeURIComponent(String(code || '').trim().toUpperCase());
+  try {
+    return await getJson(`/api/langmind/preset/${cleanCode}`);
+  } catch (err) {
+    // Fallback สำหรับทดสอบบน localhost กรณีรันเฉพาะ Frontend (Vite Dev Server)
+    if (typeof window !== 'undefined') {
+      const localRes = await fetch(`/api/langmind/preset/${cleanCode}`);
+      if (localRes.ok) {
+        return localRes.json();
+      }
+    }
+    throw err;
+  }
+}
+
+export async function createLangmindPreset(payload) {
+  try {
+    return await postJson('/api/langmind/preset', payload);
+  } catch (err) {
+    if (typeof window !== 'undefined') {
+      const localRes = await fetch('/api/langmind/preset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (localRes.ok) {
+        return localRes.json();
+      }
+    }
+    throw err;
+  }
+}

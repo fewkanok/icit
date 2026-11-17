@@ -11,7 +11,7 @@ import WalletModal from './components/WalletModal';
 import HistoryModal from './components/HistoryModal';
 import { ConfirmDialogHost, resetConfirmSuppressions } from './components/ConfirmModal';
 import { analyze } from './lib/metrics';
-import { fetchMe } from './lib/api';
+import { fetchLangmindPreset, fetchMe } from './lib/api';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
 
 class AppErrorBoundary extends Component {
@@ -68,7 +68,23 @@ export default function App() {
       ? (new URLSearchParams(window.location.search).get('group') || '').trim().toUpperCase()
       : '';
 
-  const [step, setStep] = useState(initialGroupCode ? 'group' : 'mode');
+  const initialPresetCode =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('preset') || '').trim().toUpperCase()
+      : '';
+
+  const initialLmDeckParam =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('lmDeck')
+      : null;
+
+  const [step, setStep] = useState(
+    initialGroupCode
+      ? 'group'
+      : initialPresetCode || initialLmDeckParam
+        ? 'upload'
+        : 'mode',
+  );
   const [deck, setDeck] = useState(null); // { name, slides }
   const [rehearsalMode, setRehearsalMode] = useState('per_slide'); // per_slide | continuous
   const [audience, setAudience] = useState('general');
@@ -99,11 +115,80 @@ export default function App() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const ref = new URLSearchParams(window.location.search).get('ref');
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
     if (ref?.trim()) {
       localStorage.setItem('sq_ref', ref.trim().toUpperCase());
     }
-  }, []);
+
+    const autoStart = params.get('autoStart') === '1';
+
+    if (initialPresetCode) {
+      fetchLangmindPreset(initialPresetCode)
+        .then((preset) => {
+          if (!preset?.slides?.length) return;
+          setDeck({
+            name: preset.deckName || 'สไลด์จาก LangMind AI',
+            slides: preset.slides,
+          });
+          if (preset.audience) setAudience(preset.audience);
+          if (preset.rehearsalMode) {
+            setRehearsalMode(
+              preset.rehearsalMode === 'full' ? 'continuous' : preset.rehearsalMode,
+            );
+          }
+          if (preset.timeBudget) {
+            setTimeBudget({
+              presentMinutes: Number(preset.timeBudget.presentMinutes ?? 5),
+              qaMinutes: Number(preset.timeBudget.qaMinutes ?? 5),
+            });
+          }
+          setRehearsalIndex(0);
+          setStep(autoStart ? 'rehearsal' : 'upload');
+        })
+        .catch((err) => {
+          console.warn('[LangMind Preset] โหลดสไลด์จากลิงก์ไม่สำเร็จ:', err);
+        });
+      return;
+    }
+
+    if (initialLmDeckParam) {
+      try {
+        const parsed = JSON.parse(initialLmDeckParam);
+        if (Array.isArray(parsed?.slides) && parsed.slides.length > 0) {
+          const normalizedSlides = parsed.slides.map((s, idx) => {
+            const title = String(s?.title || `สไลด์หน้าที่ ${idx + 1}`).trim();
+            const script = String(s?.script || s?.text || '').trim();
+            const points = Array.isArray(s?.points)
+              ? s.points.map((p) => String(p).trim()).filter(Boolean)
+              : [title];
+            const text = [title, points.join(' | '), script].filter(Boolean).join('\n');
+            return { id: idx + 1, title, points, script, text };
+          });
+          setDeck({
+            name: parsed.deckName || parsed.name || 'สไลด์จาก LangMind AI',
+            slides: normalizedSlides,
+          });
+          if (parsed.audience) setAudience(parsed.audience);
+          if (parsed.rehearsalMode) {
+            setRehearsalMode(
+              parsed.rehearsalMode === 'full' ? 'continuous' : parsed.rehearsalMode,
+            );
+          }
+          if (parsed.presentMinutes !== undefined || parsed.qaMinutes !== undefined) {
+            setTimeBudget({
+              presentMinutes: Number(parsed.presentMinutes ?? 5),
+              qaMinutes: Number(parsed.qaMinutes ?? 5),
+            });
+          }
+          setRehearsalIndex(0);
+          setStep(autoStart ? 'rehearsal' : 'upload');
+        }
+      } catch (err) {
+        console.warn('[LangMind URL Deck] แปลงข้อมูลสไลด์ไม่สำเร็จ:', err);
+      }
+    }
+  }, [initialPresetCode, initialLmDeckParam]);
 
   useEffect(() => {
     if (!supabase) {

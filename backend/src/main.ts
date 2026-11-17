@@ -14,7 +14,13 @@ function getCorsOrigin(): boolean | string[] {
     .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
   if (configured && configured.length > 0) {
-    return configured;
+    return Array.from(
+      new Set([
+        ...configured,
+        'https://langmind.in.th',
+        'https://www.langmind.in.th',
+      ]),
+    );
   }
   // ช่วงพัฒนาในเครื่อง (รวมถึงมือถือสแกน QR ผ่าน LAN IP)
   return process.env.NODE_ENV === 'production' ? false : true;

@@ -1,13 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 function SampleSlide({ slide, index }) {
+  const points = Array.isArray(slide.points) ? slide.points : [];
   return (
     <div className="flex h-full flex-col justify-center bg-white px-[8%]">
       <p className="font-mono text-xs text-faint">{String(index + 1).padStart(2, '0')}</p>
       <h3 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">{slide.title}</h3>
       <ul className="mt-6 space-y-2.5 text-[15px] text-muted md:text-base">
-        {slide.points.map((p) => (
-          <li key={p} className="flex gap-3">
+        {points.map((p, idx) => (
+          <li key={`${idx}-${p}`} className="flex gap-3">
             <span className="mt-[0.7em] h-px w-3 shrink-0 bg-ink/40" />
             {p}
           </li>
@@ -26,6 +27,7 @@ function Arrow({ dir }) {
 }
 
 export default function SlideViewer({ slides, index, onIndexChange, locked = false, hideNav = false, laser = null }) {
+  const [showScript, setShowScript] = useState(true);
   const total = slides?.length ?? 0;
   const slide = slides?.[index];
   const go = (i) => !locked && i >= 0 && i < total && onIndexChange(i);
@@ -83,6 +85,33 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
           >
             ถัดไป <Arrow dir="next" />
           </button>
+        </div>
+      )}
+
+      {slide?.script && (
+        <div className="mt-4 rounded-xl border border-line bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-ink">
+                บทพูดแนะนำ (หน้า {index + 1})
+              </span>
+              <span className="rounded-full bg-paper px-2 py-0.5 font-mono text-[10px] text-muted">
+                LangMind Script
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowScript((v) => !v)}
+              className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline cursor-pointer"
+            >
+              {showScript ? 'ซ่อนบทพูด' : 'แสดงบทพูด'}
+            </button>
+          </div>
+          {showScript && (
+            <p className="mt-2.5 whitespace-pre-line text-sm leading-relaxed text-ink/90">
+              {slide.script}
+            </p>
+          )}
         </div>
       )}
     </div>
