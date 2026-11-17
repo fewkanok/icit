@@ -65,7 +65,9 @@ export default async function handler(req, res) {
   try {
     const rawBuffer = await readRawBody(req);
     const rawText = rawBuffer.toString('utf8');
-    const urlObj = new URL(req.url, `https://${req.headers.host || 'icit-gamma.vercel.app'}`);
+    const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || 'icit-gamma.vercel.app';
+    const appBaseUrl = `https://${hostHeader}`;
+    const urlObj = new URL(req.url, appBaseUrl);
 
     const channelSecret = (
       urlObj.searchParams.get('secret') ||
@@ -142,11 +144,11 @@ export default async function handler(req, res) {
           ? [
               `ผมส่งไฟล์สไลด์ "${fileName}" (pdfId=${messageId})`,
               extractedSummary,
-              `ช่วยสรุปบทพูดสั้นๆ กระชับ และส่งลิงก์ซ้อมพรีเซนต์ทันทีในรูปแบบ: https://icit-gamma.vercel.app/?pdfId=${messageId}&topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5&s1=... (ตอบกระชับ ไม่เกิน 1200 ตัวอักษร)`,
+              `ช่วยสรุปบทพูดสั้นๆ กระชับ และส่งลิงก์ซ้อมพรีเซนต์ทันทีในรูปแบบ: ${appBaseUrl}/?pdfId=${messageId}&topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5&s1=... (ตอบกระชับ ไม่เกิน 1200 ตัวอักษร)`,
             ].join('\n')
           : [
               `ผมส่งไฟล์สไลด์ชื่อ "${fileName}" (ขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB) เข้ามาครับ`,
-              `เนื่องจากไฟล์มีขนาดใหญ่เกินกว่าจะดึงข้อความทั้งหมดในแชทได้ กรุณาตอบกลับสั้นๆ ทักทายและให้ลิงก์เข้าหน้าเว็บเตรียมสไลด์ทันทีในรูปแบบนี้: https://icit-gamma.vercel.app/?topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5 พร้อมแนะนำให้ผู้ใช้พิมพ์หัวข้อสั้นๆ หรือส่งรูปหน้าสไลด์มาในแชทเพื่อเขียนบทพูดได้เลยครับ`,
+              `เนื่องจากไฟล์มีขนาดใหญ่เกินกว่าจะดึงข้อความทั้งหมดในแชทได้ กรุณาตอบกลับสั้นๆ ทักทายและให้ลิงก์เข้าหน้าเว็บเตรียมสไลด์ทันทีในรูปแบบนี้: ${appBaseUrl}/?topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5 พร้อมแนะนำให้ผู้ใช้พิมพ์หัวข้อสั้นๆ หรือส่งรูปหน้าสไลด์มาในแชทเพื่อเขียนบทพูดได้เลยครับ`,
             ].join('\n');
 
         nextEvents.push({
