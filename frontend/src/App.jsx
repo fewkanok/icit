@@ -78,10 +78,15 @@ export default function App() {
       ? new URLSearchParams(window.location.search).get('lmDeck')
       : null;
 
+  const initialHasSimpleSlides =
+    typeof window !== 'undefined'
+      ? Boolean(new URLSearchParams(window.location.search).get('s1'))
+      : false;
+
   const [step, setStep] = useState(
     initialGroupCode
       ? 'group'
-      : initialPresetCode || initialLmDeckParam
+      : initialPresetCode || initialLmDeckParam || initialHasSimpleSlides
         ? 'upload'
         : 'mode',
   );
@@ -187,8 +192,68 @@ export default function App() {
       } catch (err) {
         console.warn('[LangMind URL Deck] แปลงข้อมูลสไลด์ไม่สำเร็จ:', err);
       }
+      return;
     }
-  }, [initialPresetCode, initialLmDeckParam]);
+
+    if (initialHasSimpleSlides) {
+      const cleanText = (str) =>
+        String(str || '')
+          .replace(/_/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+      const parsedSlides = [];
+      for (let i = 1; i <= 15; i++) {
+        const rawSlide = params.get(`s${i}`);
+        if (!rawSlide) continue;
+        // รูปแบบ: หัวข้อ:ประเด็น1,ประเด็น2,ประเด็น3|บทพูดเต็ม
+        const [leftPart = '', scriptPart = ''] = rawSlide.split('|');
+        const colonIdx = leftPart.indexOf(':');
+        const rawTitle = colonIdx !== -1 ? leftPart.slice(0, colonIdx) : leftPart;
+        const rawPoints = colonIdx !== -1 ? leftPart.slice(colonIdx + 1) : '';
+
+        const title = cleanText(rawTitle) || `สไลด์หน้าที่ ${i}`;
+        const script = cleanText(scriptPart);
+        const points = rawPoints
+          .split(',')
+          .map((p) => cleanText(p))
+          .filter(Boolean);
+        const finalPoints = points.length > 0 ? points : [title];
+        const text = [title, finalPoints.join(' | '), script].filter(Boolean).join('\n');
+
+        parsedSlides.push({
+          id: parsedSlides.length + 1,
+          title,
+          points: finalPoints,
+          script,
+          text,
+        });
+      }
+
+      if (parsedSlides.length > 0) {
+        const topic = cleanText(params.get('topic')) || 'สไลด์จาก LangMind AI';
+        const aud = (params.get('aud') || params.get('audience') || 'teacher').trim();
+        const mode = (params.get('mode') || 'per_slide').trim();
+        const timeMin = Number(params.get('time') ?? params.get('presentMin') ?? 5);
+        const qaMin = Number(params.get('qa') ?? params.get('qaMin') ?? 5);
+
+        setDeck({
+          name: topic,
+          slides: parsedSlides,
+        });
+        if (['general', 'teacher', 'executive'].includes(aud)) {
+          setAudience(aud);
+        }
+        setRehearsalMode(mode === 'full' || mode === 'continuous' ? 'continuous' : 'per_slide');
+        setTimeBudget({
+          presentMinutes: Number.isFinite(timeMin) ? timeMin : 5,
+          qaMinutes: Number.isFinite(qaMin) ? qaMin : 5,
+        });
+        setRehearsalIndex(0);
+        setStep(autoStart ? 'rehearsal' : 'upload');
+      }
+    }
+  }, [initialPresetCode, initialLmDeckParam, initialHasSimpleSlides]);
 
   useEffect(() => {
     if (!supabase) {
