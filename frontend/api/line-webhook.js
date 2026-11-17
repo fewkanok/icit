@@ -3,7 +3,9 @@ import crypto from 'node:crypto';
 const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
 const DEFAULT_CHANNEL_SECRET = 'abcc69d60732c52f3718d77f1aebb3d5';
-const MAX_INLINE_PDF_BYTES = 12 * 1024 * 1024; // ดึงข้อความเฉพาะไฟล์ PDF ไม่เกิน 12MB เพื่อไม่ให้เกินเวลา Webhook
+const DEFAULT_CHANNEL_ACCESS_TOKEN =
+  'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
+const MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024; // ดึงข้อความเฉพาะไฟล์ไม่เกิน 10MB เพื่อให้ทันเวลา 10 วินาทีของ Vercel
 
 export const config = {
   api: {
@@ -32,7 +34,7 @@ async function extractPdfPagesText(pdfBuffer) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 15);
+    const maxPages = Math.min(doc.numPages, 10);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -42,7 +44,7 @@ async function extractPdfPagesText(pdfBuffer) {
         .replace(/\s+/g, ' ')
         .trim();
       if (text) {
-        pages.push({ page: i, text: text.slice(0, 500) });
+        pages.push({ page: i, text: text.slice(0, 300) });
       }
     }
     return { numPages: doc.numPages, pages };
@@ -73,7 +75,7 @@ export default async function handler(req, res) {
     const channelAccessToken = (
       urlObj.searchParams.get('token') ||
       process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-      ''
+      DEFAULT_CHANNEL_ACCESS_TOKEN
     ).trim();
     const langmindWebhook = (
       urlObj.searchParams.get('webhook') ||
@@ -107,11 +109,10 @@ export default async function handler(req, res) {
         const isPdf = fileName.toLowerCase().endsWith('.pdf');
         let extractedSummary = '';
 
-        // ดึงข้อความจาก PDF เฉพาะกรณีมี Access Token และขนาดไฟล์ไม่เกิน 12MB
         if (isPdf && channelAccessToken && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
           try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 4500);
+            const timer = setTimeout(() => controller.abort(), 2500);
             const contentRes = await fetch(
               `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
               {
@@ -127,8 +128,8 @@ export default async function handler(req, res) {
               const { numPages, pages } = await extractPdfPagesText(Buffer.from(arrayBuf));
               if (pages.length > 0) {
                 extractedSummary =
-                  `เนื้อหาที่ดึงได้จากสไลด์ PDF (${numPages} หน้า):\n` +
-                  pages.map((p) => `หน้าที่ ${p.page}: ${p.text}`).join('\n');
+                  `เนื้อหาจากสไลด์ PDF (${numPages} หน้า):\n` +
+                  pages.map((p) => `หน้า ${p.page}: ${p.text}`).join('\n');
               }
             }
           } catch (err) {
@@ -139,13 +140,13 @@ export default async function handler(req, res) {
         const cleanTitle = fileName.replace(/\.pdf$/i, '').replace(/[_\-]+/g, ' ').trim();
         const syntheticText = extractedSummary
           ? [
-              `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" (pdfId=${messageId})`,
+              `ผมส่งไฟล์สไลด์ "${fileName}" (pdfId=${messageId})`,
               extractedSummary,
-              `กรุณาสรุปโครงสร้างสไลด์และร่างบทพูดให้ครบทุกหน้า พร้อมส่งลิงก์เข้าเว็บซ้อมพรีเซนต์ให้ทันทีในข้อความนี้เลย (หากใส่ pdfId=${messageId} ในลิงก์ได้ให้ใส่ด้วย)`,
-            ].join('\n\n')
+              `ช่วยสรุปบทพูดสั้นๆ กระชับ และส่งลิงก์ซ้อมพรีเซนต์ทันทีในรูปแบบ: https://icit-gamma.vercel.app/?pdfId=${messageId}&topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5&s1=... (ตอบกระชับ ไม่เกิน 1200 ตัวอักษร)`,
+            ].join('\n')
           : [
-              `ผมส่งไฟล์สไลด์ชื่อ "${fileName}" เข้ามาครับ`,
-              `กรุณาช่วยจัดโครงสร้างสไลด์ 5 หน้า และร่างบทพูดแนะนำสำหรับการนำเสนอเรื่อง "${cleanTitle}" (กลุ่มผู้ฟัง: อาจารย์/กรรมการสอบ, เวลา 5 นาที) พร้อมเก็งคำถาม 3 ข้อ และสร้างลิงก์เข้าห้องซ้อมพรีเซนต์ https://icit-gamma.vercel.app/?topic=...&aud=teacher&time=5&s1=... ให้ผมกดเข้าไปซ้อมพูดได้ทันทีในข้อความนี้เลยครับ`,
+              `ผมส่งไฟล์สไลด์ชื่อ "${fileName}" (ขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB) เข้ามาครับ`,
+              `เนื่องจากไฟล์มีขนาดใหญ่เกินกว่าจะดึงข้อความทั้งหมดในแชทได้ กรุณาตอบกลับสั้นๆ ทักทายและให้ลิงก์เข้าหน้าเว็บเตรียมสไลด์ทันทีในรูปแบบนี้: https://icit-gamma.vercel.app/?topic=${cleanTitle.replace(/\s+/g, '_')}&aud=teacher&time=5 พร้อมแนะนำให้ผู้ใช้พิมพ์หัวข้อสั้นๆ หรือส่งรูปหน้าสไลด์มาในแชทเพื่อเขียนบทพูดได้เลยครับ`,
             ].join('\n');
 
         nextEvents.push({

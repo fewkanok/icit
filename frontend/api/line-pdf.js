@@ -1,3 +1,6 @@
+const DEFAULT_CHANNEL_ACCESS_TOKEN =
+  'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -12,17 +15,11 @@ export default async function handler(req, res) {
   const token = (
     urlObj.searchParams.get('token') ||
     process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-    ''
+    DEFAULT_CHANNEL_ACCESS_TOKEN
   ).trim();
 
   if (!messageId || !/^[A-Za-z0-9_-]+$/.test(messageId)) {
     return res.status(400).json({ message: 'รหัสไฟล์ PDF ไม่ถูกต้อง' });
-  }
-
-  if (!token) {
-    return res.status(400).json({
-      message: 'ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN บน Vercel',
-    });
   }
 
   try {
@@ -37,7 +34,7 @@ export default async function handler(req, res) {
 
     if (!lineRes.ok) {
       return res.status(lineRes.status).json({
-        message: 'ไม่สามารถดึงไฟล์ PDF จาก LINE ได้ (ไฟล์อาจหมดอายุแล้ว)',
+        message: 'ไม่สามารถดึงไฟล์ PDF จาก LINE ได้ (ไฟล์อาจใหญ่เกินไปหรือหมดอายุแล้ว)',
       });
     }
 
