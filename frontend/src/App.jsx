@@ -12,6 +12,7 @@ import HistoryModal from './components/HistoryModal';
 import { ConfirmDialogHost, resetConfirmSuppressions } from './components/ConfirmModal';
 import { analyze } from './lib/metrics';
 import { fetchLangmindPreset, fetchMe } from './lib/api';
+import { filesToSlides } from './lib/slides';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
 
 class AppErrorBoundary extends Component {
@@ -80,7 +81,10 @@ export default function App() {
 
   const initialHasSimpleSlides =
     typeof window !== 'undefined'
-      ? Boolean(new URLSearchParams(window.location.search).get('s1'))
+      ? Boolean(
+          new URLSearchParams(window.location.search).get('s1') ||
+            new URLSearchParams(window.location.search).get('pdfId'),
+        )
       : false;
 
   const [step, setStep] = useState(
@@ -251,6 +255,39 @@ export default function App() {
         });
         setRehearsalIndex(0);
         setStep(autoStart ? 'rehearsal' : 'upload');
+      }
+
+      // หากมี pdfId จากการส่งไฟล์ PDF ใน LINE OA ให้ดึงไฟล์ PDF จริงมาแปลงเป็นภาพสไลด์แล้วผูกกับบทพูดอัตโนมัติ
+      const pdfId = (params.get('pdfId') || '').trim();
+      if (pdfId) {
+        const topic = cleanText(params.get('topic')) || 'สไลด์ PDF จาก LINE OA';
+        fetch(`/api/line-pdf?id=${encodeURIComponent(pdfId)}`)
+          .then(async (res) => {
+            if (!res.ok) throw new Error('ไม่สามารถดึงไฟล์ PDF จาก LINE ได้');
+            const blob = await res.blob();
+            const pdfFile = new File([blob], `${topic}.pdf`, { type: 'application/pdf' });
+            const pdfSlides = await filesToSlides([pdfFile]);
+            const merged = pdfSlides.map((s, idx) => {
+              const sc = parsedSlides[idx];
+              if (!sc) return s;
+              return {
+                ...s,
+                title: sc.title || s.title,
+                points: sc.points || s.points,
+                script: sc.script,
+                text: [sc.title, s.text, sc.script ? `บทพูด: ${sc.script}` : '']
+                  .filter(Boolean)
+                  .join('\n'),
+              };
+            });
+            setDeck({
+              name: topic,
+              slides: merged,
+            });
+          })
+          .catch((err) => {
+            console.warn('[LINE PDF Auto-Load] โหลดภาพสไลด์ PDF ไม่สำเร็จ ใช้สไลด์ข้อความแทน:', err);
+          });
       }
     }
   }, [initialPresetCode, initialLmDeckParam, initialHasSimpleSlides]);
