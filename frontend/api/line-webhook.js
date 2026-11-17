@@ -4,7 +4,7 @@ const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
 const DEFAULT_CHANNEL_ACCESS_TOKEN =
   'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
-const MAX_INLINE_PDF_BYTES = 12 * 1024 * 1024;
+const MAX_INLINE_PDF_BYTES = 25 * 1024 * 1024;
 
 export const config = {
   api: {
@@ -23,6 +23,7 @@ function readRawBody(req) {
 
 async function extractPdfPagesText(pdfBuffer) {
   try {
+    await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const uint8 = new Uint8Array(pdfBuffer);
     const loadingTask = pdfjs.getDocument({
@@ -33,7 +34,7 @@ async function extractPdfPagesText(pdfBuffer) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 8);
+    const maxPages = Math.min(doc.numPages, 10);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -42,10 +43,12 @@ async function extractPdfPagesText(pdfBuffer) {
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim();
-      pages.push({
-        page: i,
-        text: text.slice(0, 220),
-      });
+      if (text) {
+        pages.push({
+          page: i,
+          text: text.slice(0, 240),
+        });
+      }
     }
     return { numPages: doc.numPages, pages };
   } catch (err) {
@@ -54,76 +57,30 @@ async function extractPdfPagesText(pdfBuffer) {
   }
 }
 
-function buildSlidesFromPdfOrTopic(cleanTitle, pages) {
-  const validPages = pages.filter((p) => p.text && p.text.length > 3);
-  if (validPages.length > 0) {
-    return {
-      isCustom: true,
-      slides: validPages.map((p, idx) => {
-        const sentences = p.text
-          .split(/(?<=[.!?])\s+|\s{2,}/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-        const title = (sentences[0] || `สไลด์หน้าที่ ${idx + 1}`).slice(0, 60);
-        const points =
-          sentences.slice(1, 4).length > 0
-            ? sentences.slice(1, 4).map((s) => s.slice(0, 70))
-            : [p.text.slice(0, 80)];
-        const script = `สำหรับสไลด์หน้าที่ ${idx + 1} หัวข้อ ${title} ประเด็นสำคัญคือ ${p.text.slice(0, 180)} ครับ`;
-        return { title, points, script };
-      }),
-    };
+function buildSlidesFromExtractedPages(pages) {
+  const validPages = pages.filter((p) => p.text && p.text.length > 2);
+  if (validPages.length === 0) {
+    return { isCustom: false, slides: [] };
   }
 
   return {
-    isCustom: false,
-    slides: [
-      {
-        title: `ที่มาและความสำคัญ (${cleanTitle})`,
-        points: [
-          'สภาพปัญหาปัจจุบันและเหตุผลที่ต้องพัฒนาโครงงานนี้',
-          'ช่องว่างของระบบเดิมและโอกาสในการนำเทคโนโลยีมาช่วย',
-          'ประโยชน์ที่คาดว่าจะได้รับจากโครงงาน',
-        ],
-        script: `สวัสดีคณะกรรมการทุกท่านครับ วันนี้พวกเราขอนำเสนอโครงงานเรื่อง ${cleanTitle} โดยเริ่มต้นจากปัญหาสำคัญที่เราพบในปัจจุบัน และเหตุผลที่ต้องพัฒนาโซลูชันนี้ขึ้นมาแก้ไขครับ`,
-      },
-      {
-        title: 'วัตถุประสงค์และขอบเขตของโครงงาน',
-        points: [
-          'วัตถุประสงค์หลักของการพัฒนาและวิจัย',
-          'ขอบเขตด้านระบบ กลุ่มเป้าหมาย และข้อมูลที่ใช้ทดสอบ',
-          'ตัวชี้วัดความสำเร็จของโครงงาน',
-        ],
-        script: `สำหรับวัตถุประสงค์หลักของโครงงาน ${cleanTitle} คือการพัฒนาระบบที่ตอบโจทย์ผู้ใช้งานจริงภายใต้ขอบเขตและตัวชี้วัดที่เราได้กำหนดไว้อย่างชัดเจนครับ`,
-      },
-      {
-        title: 'สถาปัตยกรรมระบบและวิธีการดำเนินงาน',
-        points: [
-          'ขั้นตอนการทำงานตั้งแต่รับข้อมูลจนถึงการประมวลผล',
-          'เครื่องมือ เทคโนโลยี และทฤษฎีที่เลือกใช้',
-          'การออกแบบส่วนติดต่อผู้ใช้และการเชื่อมต่อระบบ',
-        ],
-        script: `ในส่วนของวิธีการดำเนินงาน เราได้ออกแบบสถาปัตยกรรมระบบให้ทำงานเป็นลำดับขั้น ตั้งแต่การรับข้อมูล ประมวลผล ไปจนถึงการแสดงผลลัพธ์อย่างมีประสิทธิภาพครับ`,
-      },
-      {
-        title: 'ผลการทดลองและการประเมินประสิทธิภาพ',
-        points: [
-          'ผลการทดสอบการทำงานจริงเทียบกับเกณฑ์ที่ตั้งไว้',
-          'การวิเคราะห์ความแม่นยำและความเร็วในการประมวลผล',
-          'สรุปความพึงพอใจและผลกระทบจากการใช้งาน',
-        ],
-        script: `จากผลการทดลองและประเมินประสิทธิภาพ พบว่าระบบสามารถทำงานได้ตรงตามวัตถุประสงค์ที่ตั้งไว้ และช่วยลดเวลาการทำงานลงได้อย่างชัดเจนครับ`,
-      },
-      {
-        title: 'สรุปผล ข้อจำกัด และแนวทางการพัฒนาต่อยอด',
-        points: [
-          'สรุปผลสำเร็จตามวัตถุประสงค์ของโครงงาน',
-          'ข้อจำกัดที่พบระหว่างการพัฒนาและทดสอบจริง',
-          'แนวทางการขยายผลและพัฒนาต่อยอดในอนาคต',
-        ],
-        script: `โดยสรุป โครงงาน ${cleanTitle} สามารถตอบโจทย์ปัญหาที่ตั้งไว้ได้ครบถ้วน และพร้อมนำไปพัฒนาต่อยอดขยายผลในอนาคต ขอบคุณคณะกรรมการทุกท่านครับ พร้อมรับฟังคำถามครับ`,
-      },
-    ],
+    isCustom: true,
+    slides: validPages.map((p, idx) => {
+      const sentences = p.text
+        .split(/(?<=[.!?])\s+|\s{2,}/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const title = (sentences[0] || `สไลด์หน้าที่ ${p.page || idx + 1}`).slice(0, 70);
+      const points =
+        sentences.slice(1, 4).length > 0
+          ? sentences.slice(1, 4).map((s) => s.slice(0, 80))
+          : [p.text.slice(0, 90)];
+      const script =
+        idx === 0
+          ? `สวัสดีคณะกรรมการทุกท่านครับ สำหรับสไลด์แรก หัวข้อ ${title} เนื้อหาสำคัญคือ ${p.text.slice(0, 200)} ครับ`
+          : `ในสไลด์หน้าที่ ${p.page || idx + 1} หัวข้อ ${title} ประเด็นสำคัญคือ ${p.text.slice(0, 200)} ครับ`;
+      return { title, points, script };
+    }),
   };
 }
 
@@ -180,10 +137,11 @@ export default async function handler(req, res) {
           fileName.replace(/\.pdf$/i, '').replace(/[_\-]+/g, ' ').trim() || 'สไลด์นำเสนอ';
 
         let extractedPages = [];
+        let totalPdfPages = 0;
         if (isPdf && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
           try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 3500);
+            const timer = setTimeout(() => controller.abort(), 5500);
             const contentRes = await fetch(
               `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
               {
@@ -196,17 +154,18 @@ export default async function handler(req, res) {
             clearTimeout(timer);
             if (contentRes.ok) {
               const arrayBuf = await contentRes.arrayBuffer();
-              const { pages } = await extractPdfPagesText(Buffer.from(arrayBuf));
+              const { numPages, pages } = await extractPdfPagesText(Buffer.from(arrayBuf));
               extractedPages = pages;
+              totalPdfPages = numPages;
             }
           } catch (err) {
             console.warn('[LINE PDF Bridge] Skip inline PDF extraction:', err?.message);
           }
         }
 
-        const { isCustom, slides } = buildSlidesFromPdfOrTopic(cleanTitle, extractedPages);
+        const { isCustom, slides } = buildSlidesFromExtractedPages(extractedPages);
 
-        // สร้างพารามิเตอร์ ?z= ที่เป็นตัวอักษรภาษาอังกฤษ (A-Za-z0-9-_) ล้วน 100% และสั้นกระชับ
+        // แนบ pdfId ลงไปในลิงก์เสมอ เพื่อให้หน้าเว็บดึงไฟล์ PDF จริงจาก LINE ไปแปลงเป็นภาพสไลด์และดึงข้อความทุกหน้าอัตโนมัติ
         const compactPayload = isCustom
           ? {
               n: cleanTitle,
@@ -214,7 +173,7 @@ export default async function handler(req, res) {
               m: 'per_slide',
               pm: 5,
               qm: 5,
-              ...(isPdf && (!fileSize || fileSize <= 35 * 1024 * 1024) ? { pdfId: messageId } : {}),
+              pdfId: messageId,
               sl: slides.map((s) => ({
                 t: s.title,
                 p: s.points,
@@ -227,6 +186,7 @@ export default async function handler(req, res) {
               m: 'per_slide',
               pm: 5,
               qm: 5,
+              pdfId: messageId,
               auto: 1,
             };
 
@@ -236,26 +196,26 @@ export default async function handler(req, res) {
         const encodedZ = compressedBytes.toString('base64url');
         const rehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
 
-        const slideLines = slides
-          .map(
-            (s, i) =>
-              `📌 หน้าที่ ${i + 1}: ${s.title}\n• ประเด็น: ${s.points.join(' / ')}\n🎙️ บทพูด: "${s.script}"`,
-          )
-          .join('\n\n');
-
-        const sizeNote =
-          fileSize > MAX_INLINE_PDF_BYTES
-            ? `\n\n💡 ไฟล์ "${fileName}" มีขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB เมื่อกดเข้าหน้าเว็บแล้ว สามารถลากไฟล์ PDF นี้วางในช่องอัปโหลดเพื่อแสดงภาพสไลด์จริงคู่กับบทพูดชุดนี้ได้ทันทีครับ!`
-            : '';
-
-        const replyText = [
-          `รับไฟล์สไลด์ "${fileName}" เรียบร้อยแล้วครับ! ผมจัดโครงสร้างสไลด์ (${slides.length} หน้า) พร้อมร่างบทพูดแนะนำ (เวลา 5 นาที) ให้ดังนี้ครับ:\n`,
-          slideLines,
-          `\n🎯 กดลิงก์ด้านล่างเพื่อเข้าห้องซ้อมพรีเซนต์ทันที:\n${rehearsalUrl}`,
-          sizeNote,
-        ]
-          .filter(Boolean)
-          .join('\n');
+        let replyText = '';
+        if (isCustom) {
+          const slideLines = slides
+            .map(
+              (s, i) =>
+                `📌 หน้าที่ ${i + 1}: ${s.title}\n• ประเด็น: ${s.points.join(' / ')}\n🎙️ บทพูด: "${s.script}"`,
+            )
+            .join('\n\n');
+          replyText = [
+            `อ่านไฟล์สไลด์ "${fileName}" (${totalPdfPages || slides.length} หน้า) เรียบร้อยแล้วครับ! สรุปประเด็นและบทพูดจากเนื้อหาจริงในสไลด์ของคุณได้ดังนี้ครับ:\n`,
+            slideLines,
+            `\n🎯 กดปุ่มสีส้มด้านล่าง (หรือลิงก์นี้) เพื่อเปิดสไลด์ PDF จริงพร้อมบทพูดบนเว็บได้ทันที:\n${rehearsalUrl}`,
+          ].join('\n');
+        } else {
+          const sizeStr = fileSize ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB` : 'PDF';
+          replyText = [
+            `รับไฟล์สไลด์ "${fileName}" (${sizeStr}) เรียบร้อยแล้วครับ! 📄`,
+            `ระบบได้เชื่อมไฟล์ PDF ชุดนี้เข้ากับห้องซ้อมบนเว็บให้โดยตรงแล้ว เมื่อคุณกดปุ่ม "เริ่มซ้อมพรีเซนต์ทันที" ด้านล่าง หน้าเว็บจะดึงไฟล์สไลด์ PDF ของคุณไปเปิดแสดงผลทุกหน้า พร้อมสร้างบทพูดแนะนำจากเนื้อหาในแต่ละหน้าให้อัตโนมัติทันทีครับ:\n${rehearsalUrl}`,
+          ].join('\n\n');
+        }
 
         const replyMessages = [
           {
@@ -291,7 +251,9 @@ export default async function handler(req, res) {
                   },
                   {
                     type: 'text',
-                    text: `เตรียมสไลด์และบทพูดครบ ${slides.length} หน้า · ผู้ฟัง: อาจารย์/กรรมการ · เวลา 5 นาที`,
+                    text: isCustom
+                      ? `อ่านสไลด์จริงครบ ${totalPdfPages || slides.length} หน้า · พร้อมบทพูดและไฟล์ PDF`
+                      : 'เชื่อมไฟล์ PDF จาก LINE แล้ว · กดเพื่อโหลดสไลด์จริงบนเว็บทันที',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,

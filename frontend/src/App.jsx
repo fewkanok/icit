@@ -115,6 +115,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(Boolean(supabase));
   const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [linePdfLoading, setLinePdfLoading] = useState(null);
 
   useEffect(() => {
     const onTokensUpdated = (e) => {
@@ -234,28 +235,63 @@ export default function App() {
           setStep(autoStart ? 'rehearsal' : 'upload');
 
           if (data?.pdfId) {
-            fetch(`/api/line-pdf?id=${encodeURIComponent(data.pdfId)}`)
-              .then(async (res) => {
-                if (!res.ok) return;
-                const blob = await res.blob();
+            const pdfId = String(data.pdfId).trim();
+            const isCustomSlides = Array.isArray(data?.sl) && data.sl.length > 0;
+            const renderBackendBase =
+              import.meta.env.VITE_API_URL || 'https://icit.onrender.com';
+
+            setLinePdfLoading({ done: 0, total: 0 });
+            const fetchPdfBlob = async () => {
+              // 1. ลองดึงผ่าน Vercel API ก่อน (เร็วสำหรับไฟล์ทั่วไป)
+              const res1 = await fetch(`/api/line-pdf?id=${encodeURIComponent(pdfId)}`).catch(
+                () => null,
+              );
+              if (res1 && res1.ok) return res1.blob();
+              // 2. หากไฟล์มีขนาดใหญ่ (เช่น >4.5MB ถึง 87MB) ให้สตรีมผ่าน Backend หลักที่ไม่มีลิมิตขนาดไฟล์
+              const res2 = await fetch(
+                `${renderBackendBase}/api/langmind/line-pdf/${encodeURIComponent(pdfId)}`,
+              );
+              if (!res2.ok) throw new Error('ไม่สามารถดึงไฟล์ PDF จาก LINE ได้');
+              return res2.blob();
+            };
+
+            fetchPdfBlob()
+              .then(async (blob) => {
                 const pdfFile = new File([blob], `${topic}.pdf`, { type: 'application/pdf' });
-                const pdfSlides = await filesToSlides([pdfFile]);
+                const pdfSlides = await filesToSlides([pdfFile], (done, total) =>
+                  setLinePdfLoading({ done, total }),
+                );
                 const merged = pdfSlides.map((s, idx) => {
-                  const sc = normalizedSlides[idx];
-                  if (!sc) return s;
+                  const sc = isCustomSlides ? normalizedSlides[idx] : null;
+                  const pageText = String(s.text || '').trim();
+                  const autoScript = pageText
+                    ? idx === 0
+                      ? `สวัสดีคณะกรรมการทุกท่านครับ สำหรับสไลด์หน้าแรก ${pageText.slice(0, 260)} ครับ`
+                      : `ในสไลด์หน้าที่ ${idx + 1} ประเด็นสำคัญคือ ${pageText.slice(0, 260)} ครับ`
+                    : normalizedSlides[idx]?.script ||
+                      `สไลด์หน้าที่ ${idx + 1} ของหัวข้อ ${topic} ครับ`;
+                  const finalScript = sc?.script || autoScript;
+                  const finalTitle =
+                    sc?.title ||
+                    (pageText ? pageText.split(/\s{2,}|\r?\n/)[0].slice(0, 70) : `หน้า ${idx + 1}`);
                   return {
                     ...s,
-                    title: sc.title || s.title,
-                    points: sc.points || s.points,
-                    script: sc.script,
-                    text: [sc.title, s.text, sc.script ? `บทพูด: ${sc.script}` : '']
+                    title: finalTitle,
+                    points: sc?.points || s.points,
+                    script: finalScript,
+                    text: [finalTitle, pageText, `บทพูด: ${finalScript}`]
                       .filter(Boolean)
                       .join('\n'),
                   };
                 });
-                setDeck({ name: topic, slides: merged });
+                setDeck({ name: `${topic}.pdf`, slides: merged });
               })
-              .catch(() => {});
+              .catch((err) => {
+                console.warn('[LINE PDF Auto-Load] ดึงไฟล์ PDF ไม่สำเร็จ:', err);
+              })
+              .finally(() => {
+                setLinePdfLoading(null);
+              });
           }
         })
         .catch((err) => {
@@ -555,6 +591,7 @@ export default function App() {
         {step === 'upload' && (
           <UploadStep
             deck={deck}
+            externalProgress={linePdfLoading}
             rehearsalMode={rehearsalMode}
             onRehearsalModeChange={setRehearsalMode}
             audience={audience}

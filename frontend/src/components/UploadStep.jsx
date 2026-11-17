@@ -12,6 +12,7 @@ const AUDIENCE_LABEL = {
 
 export default function UploadStep({
   deck,
+  externalProgress = null,
   rehearsalMode,
   onRehearsalModeChange,
   audience,
@@ -82,7 +83,8 @@ export default function UploadStep({
     }
   }
 
-  const loading = progress !== null;
+  const activeProgress = progress || externalProgress;
+  const loading = activeProgress !== null;
 
   return (
     <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[320px_1fr] lg:gap-14">
@@ -128,17 +130,25 @@ export default function UploadStep({
         {loading && (
           <div className="mt-4">
             <div className="flex justify-between text-xs text-muted">
-              <span>กำลังแปลงสไลด์</span>
-              {progress.total > 0 && (
+              <span>
+                {externalProgress
+                  ? 'กำลังดึงไฟล์สไลด์ PDF จาก LINE อัตโนมัติ...'
+                  : 'กำลังแปลงสไลด์'}
+              </span>
+              {activeProgress.total > 0 && (
                 <span className="font-mono tabular-nums">
-                  {progress.done}/{progress.total}
+                  {activeProgress.done}/{activeProgress.total}
                 </span>
               )}
             </div>
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">
               <div
                 className="h-full bg-ink transition-all"
-                style={{ width: progress.total ? `${(progress.done / progress.total) * 100}%` : '15%' }}
+                style={{
+                  width: activeProgress.total
+                    ? `${(activeProgress.done / activeProgress.total) * 100}%`
+                    : '25%',
+                }}
               />
             </div>
           </div>

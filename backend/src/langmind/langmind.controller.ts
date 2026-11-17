@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
 import {
   BadRequestException,
   Body,
@@ -7,9 +8,14 @@ import {
   NotFoundException,
   Param,
   Post,
+  Res,
 } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service.js';
+
+const DEFAULT_LINE_CHANNEL_ACCESS_TOKEN =
+  'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
 
 export interface LangmindSlideInput {
   id?: number;
@@ -305,6 +311,58 @@ export class LangmindController {
     throw new NotFoundException(
       'ไม่พบข้อมูลสไลด์สำหรับลิงก์นี้ หรือลิงก์อาจหมดอายุแล้ว',
     );
+  }
+
+  @SkipThrottle()
+  @Get('line-pdf/:id')
+  async streamLinePdf(@Param('id') rawId: string, @Res() res: Response) {
+    const messageId = String(rawId || '')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]/g, '');
+    if (!messageId) {
+      res.status(400).json({ message: 'รหัสไฟล์ PDF ไม่ถูกต้อง' });
+      return;
+    }
+
+    const token = (
+      process.env.LINE_CHANNEL_ACCESS_TOKEN || DEFAULT_LINE_CHANNEL_ACCESS_TOKEN
+    ).trim();
+
+    try {
+      const lineRes = await fetch(
+        `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!lineRes.ok || !lineRes.body) {
+        res.status(lineRes.status || 404).json({
+          message: 'ไม่สามารถดึงไฟล์ PDF จาก LINE ได้',
+        });
+        return;
+      }
+
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      const contentLen = lineRes.headers.get('content-length');
+      if (contentLen) {
+        res.setHeader('Content-Length', contentLen);
+      }
+
+      Readable.fromWeb(lineRes.body as unknown as import('node:stream/web').ReadableStream).pipe(
+        res,
+      );
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(500).json({
+          message: (err as Error)?.message || 'เกิดข้อผิดพลาดในการสตรีมไฟล์ PDF',
+        });
+      }
+    }
   }
 
   private pruneExpiredMemory() {
