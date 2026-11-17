@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 
 const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
+const DEFAULT_CHANNEL_SECRET = 'abcc69d60732c52f3718d77f1aebb3d5';
+const MAX_INLINE_PDF_BYTES = 12 * 1024 * 1024; // ดึงข้อความเฉพาะไฟล์ PDF ไม่เกิน 12MB เพื่อไม่ให้เกินเวลา Webhook
 
 export const config = {
   api: {
@@ -30,7 +32,7 @@ async function extractPdfPagesText(pdfBuffer) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 20);
+    const maxPages = Math.min(doc.numPages, 15);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -39,12 +41,14 @@ async function extractPdfPagesText(pdfBuffer) {
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim();
-      pages.push({ page: i, text: text || `(สไลด์หน้าที่ ${i} เป็นภาพกราฟิก)` });
+      if (text) {
+        pages.push({ page: i, text: text.slice(0, 500) });
+      }
     }
     return { numPages: doc.numPages, pages };
   } catch (err) {
     console.warn('[LINE PDF Bridge] pdfjs extract fallback:', err?.message);
-    return { numPages: 1, pages: [] };
+    return { numPages: 0, pages: [] };
   }
 }
 
@@ -64,7 +68,7 @@ export default async function handler(req, res) {
     const channelSecret = (
       urlObj.searchParams.get('secret') ||
       process.env.LINE_CHANNEL_SECRET ||
-      ''
+      DEFAULT_CHANNEL_SECRET
     ).trim();
     const channelAccessToken = (
       urlObj.searchParams.get('token') ||
@@ -85,7 +89,6 @@ export default async function handler(req, res) {
     }
 
     const events = Array.isArray(payload.events) ? payload.events : [];
-    // กรณี LINE กดปุ่ม Verify Webhook (events ว่าง)
     if (events.length === 0) {
       return res.status(200).json({ ok: true, verified: true });
     }
@@ -94,48 +97,56 @@ export default async function handler(req, res) {
     const nextEvents = [];
 
     for (const ev of events) {
-      const isPdfFile =
-        ev?.type === 'message' &&
-        ev?.message?.type === 'file' &&
-        String(ev?.message?.fileName || '')
-          .toLowerCase()
-          .endsWith('.pdf');
+      const isFileMessage = ev?.type === 'message' && ev?.message?.type === 'file';
 
-      if (isPdfFile && channelAccessToken) {
+      if (isFileMessage) {
         modified = true;
         const messageId = ev.message.id;
-        const fileName = ev.message.fileName || 'slides.pdf';
+        const fileName = String(ev.message.fileName || 'slides.pdf').trim();
+        const fileSize = Number(ev.message.fileSize || 0);
+        const isPdf = fileName.toLowerCase().endsWith('.pdf');
         let extractedSummary = '';
 
-        try {
-          const contentRes = await fetch(
-            `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
-            {
-              headers: {
-                Authorization: `Bearer ${channelAccessToken}`,
+        // ดึงข้อความจาก PDF เฉพาะกรณีมี Access Token และขนาดไฟล์ไม่เกิน 12MB
+        if (isPdf && channelAccessToken && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4500);
+            const contentRes = await fetch(
+              `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
+              {
+                headers: {
+                  Authorization: `Bearer ${channelAccessToken}`,
+                },
+                signal: controller.signal,
               },
-            },
-          );
-          if (contentRes.ok) {
-            const arrayBuf = await contentRes.arrayBuffer();
-            const { numPages, pages } = await extractPdfPagesText(Buffer.from(arrayBuf));
-            if (pages.length > 0) {
-              extractedSummary =
-                `จำนวนทั้งหมด ${numPages} หน้า:\n` +
-                pages.map((p) => `หน้าที่ ${p.page}: ${p.text}`).join('\n');
+            );
+            clearTimeout(timer);
+            if (contentRes.ok) {
+              const arrayBuf = await contentRes.arrayBuffer();
+              const { numPages, pages } = await extractPdfPagesText(Buffer.from(arrayBuf));
+              if (pages.length > 0) {
+                extractedSummary =
+                  `เนื้อหาที่ดึงได้จากสไลด์ PDF (${numPages} หน้า):\n` +
+                  pages.map((p) => `หน้าที่ ${p.page}: ${p.text}`).join('\n');
+              }
             }
+          } catch (err) {
+            console.warn('[LINE PDF Bridge] Skip inline PDF extraction:', err?.message);
           }
-        } catch (err) {
-          console.warn('[LINE PDF Bridge] Failed to fetch/parse PDF from LINE:', err?.message);
         }
 
-        const syntheticText = [
-          `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" (รหัสไฟล์ pdfId=${messageId})`,
-          extractedSummary
-            ? `เนื้อหาที่ดึงได้จากสไลด์ PDF:\n${extractedSummary}`
-            : `กรุณาช่วยจัดโครงสร้างสไลด์และร่างบทพูดสำหรับไฟล์ ${fileName}`,
-          `\n[คำสั่งสำคัญ: กรุณาสรุปสไลด์และร่างบทพูดให้ครบทุกหน้า พร้อมสร้างลิงก์เข้าซ้อมพรีเซนต์ทันทีในข้อความนี้เลย โดยต้องใส่ pdfId=${messageId} ลงในลิงก์ด้วยตามรูปแบบนี้: https://icit-gamma.vercel.app/?pdfId=${messageId}&topic=ชื่อเรื่อง&aud=teacher&time=5&s1=หัวข้อหน้า1:ประเด็น1,ประเด็น2|บทพูดหน้า1&s2=หัวข้อหน้า2:ประเด็น1,ประเด็น2|บทพูดหน้า2 ]`,
-        ].join('\n\n');
+        const cleanTitle = fileName.replace(/\.pdf$/i, '').replace(/[_\-]+/g, ' ').trim();
+        const syntheticText = extractedSummary
+          ? [
+              `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" (pdfId=${messageId})`,
+              extractedSummary,
+              `กรุณาสรุปโครงสร้างสไลด์และร่างบทพูดให้ครบทุกหน้า พร้อมส่งลิงก์เข้าเว็บซ้อมพรีเซนต์ให้ทันทีในข้อความนี้เลย (หากใส่ pdfId=${messageId} ในลิงก์ได้ให้ใส่ด้วย)`,
+            ].join('\n\n')
+          : [
+              `ผมส่งไฟล์สไลด์ชื่อ "${fileName}" เข้ามาครับ`,
+              `กรุณาช่วยจัดโครงสร้างสไลด์ 5 หน้า และร่างบทพูดแนะนำสำหรับการนำเสนอเรื่อง "${cleanTitle}" (กลุ่มผู้ฟัง: อาจารย์/กรรมการสอบ, เวลา 5 นาที) พร้อมเก็งคำถาม 3 ข้อ และสร้างลิงก์เข้าห้องซ้อมพรีเซนต์ https://icit-gamma.vercel.app/?topic=...&aud=teacher&time=5&s1=... ให้ผมกดเข้าไปซ้อมพูดได้ทันทีในข้อความนี้เลยครับ`,
+            ].join('\n');
 
         nextEvents.push({
           ...ev,
