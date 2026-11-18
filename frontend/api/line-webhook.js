@@ -1,15 +1,15 @@
+import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 
 const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
+const DEFAULT_CHANNEL_SECRET = 'abcc69d60732c52f3718d77f1aebb3d5';
 const DEFAULT_CHANNEL_ACCESS_TOKEN =
   'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
 const DEFAULT_RENDER_BACKEND = 'https://icit.onrender.com';
 const MAX_INLINE_PDF_BYTES = 25 * 1024 * 1024;
 
-// เก็บบริบทสไลด์และคำถามล่าสุดของผู้ใช้แต่ละคนในหน่วยความจำ
-const userStateMap = new Map();
-let globalLatestDeck = null;
+export const maxDuration = 60;
 
 export const config = {
   api: {
@@ -97,7 +97,7 @@ function buildFlowGuideFlex(appBaseUrl) {
         contents: [
           {
             type: 'text',
-            text: 'ICIT REHEARSAL COACH',
+            text: 'ICIT REHEARSAL COACH × LANGMIND',
             color: '#D95D39',
             size: 'xs',
             weight: 'bold',
@@ -112,7 +112,7 @@ function buildFlowGuideFlex(appBaseUrl) {
           },
           {
             type: 'text',
-            text: 'เปลี่ยนสไลด์หรือเนื้อหาวิจัยเป็นบทพูดและซ้อมพูดได้ใน 4 ขั้นตอน',
+            text: 'ประมวลผลด้วยสมองกล LangMind AI Agent ครบทุกขั้นตอน',
             color: '#CCCCCC',
             size: 'xs',
             wrap: true,
@@ -131,12 +131,7 @@ function buildFlowGuideFlex(appBaseUrl) {
             layout: 'horizontal',
             spacing: 'md',
             contents: [
-              {
-                type: 'text',
-                text: '1️⃣',
-                size: 'md',
-                flex: 0,
-              },
+              { type: 'text', text: '1️⃣', size: 'md', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -144,14 +139,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'ส่งไฟล์สไลด์ .PDF หรือเนื้อหาในแชท',
+                    text: 'ส่งไฟล์สไลด์ .PDF / รูปภาพ / เนื้อหา',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'ส่งไฟล์ PDF รูปหน้าสไลด์ หรือพิมพ์หัวข้อโปรเจกต์เข้ามาได้เลย',
+                    text: 'LangMind AI จะอ่านเนื้อหาสไลด์ สรุปประเด็น และร่างบทพูดตามเวลาจริง',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -165,12 +160,7 @@ function buildFlowGuideFlex(appBaseUrl) {
             layout: 'horizontal',
             spacing: 'md',
             contents: [
-              {
-                type: 'text',
-                text: '2️⃣',
-                size: 'md',
-                flex: 0,
-              },
+              { type: 'text', text: '2️⃣', size: 'md', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -178,14 +168,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'AI สรุปโครงสร้างสไลด์ & ร่างบทพูด',
+                    text: 'ซ้อมถาม-ตอบจากสไลด์ด้วยเสียงพูดใน LINE',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'คำนวณความยาวบทพูดตามเวลาจริง (135 คำ/นาที) แยกตามผู้ฟัง',
+                    text: 'กดสุ่มคำถามให้ LangMind ตั้งคำถามจากสไลด์ แล้วกดไมค์ใน LINE พูดตอบได้เลย',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -199,12 +189,7 @@ function buildFlowGuideFlex(appBaseUrl) {
             layout: 'horizontal',
             spacing: 'md',
             contents: [
-              {
-                type: 'text',
-                text: '3️⃣',
-                size: 'md',
-                flex: 0,
-              },
+              { type: 'text', text: '3️⃣', size: 'md', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -212,14 +197,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'ซ้อมตอบคำถามด้วยเสียงพูดใน LINE',
+                    text: 'เข้าเวทีซ้อมจริงบนเว็บ icit-gamma.vercel.app',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'กดปุ่มสุ่มคำถามกรรมการ แล้วกดไมค์ใน LINE อัดเสียงตอบเพื่อรับผลประเมินทันที',
+                    text: 'โหลดสไลด์ PDF + บทพูดอัตโนมัติ วัด WPM คำติดปาก เดดแอร์ และ Eye Contact',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -233,12 +218,7 @@ function buildFlowGuideFlex(appBaseUrl) {
             layout: 'horizontal',
             spacing: 'md',
             contents: [
-              {
-                type: 'text',
-                text: '4️⃣',
-                size: 'md',
-                flex: 0,
-              },
+              { type: 'text', text: '4️⃣', size: 'md', flex: 0 },
               {
                 type: 'box',
                 layout: 'vertical',
@@ -246,14 +226,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'กดปุ่มเข้าเวทีซ้อมจริงบนเว็บ',
+                    text: 'ดึงรายงานสรุปผลการซ้อมเป็นไฟล์ PDF',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'โหลดสไลด์ PDF + บทพูดอัตโนมัติ วัดความเร็ว WPM คำติดปาก และ Eye Contact',
+                    text: 'กดดึงผลซ้อมล่าสุดจากหน้าสรุปมาเปิดอ่านและบันทึกเป็นเอกสาร PDF ขนาด A4',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -277,7 +257,7 @@ function buildFlowGuideFlex(appBaseUrl) {
             height: 'sm',
             action: {
               type: 'message',
-              label: '❓ สุ่มคำถามซ้อมสอบ (พูดตอบได้)',
+              label: '❓ ให้ LangMind สุ่มคำถามจากสไลด์',
               text: 'สุ่มคำถามจากสไลด์',
             },
           },
@@ -307,429 +287,6 @@ function buildFlowGuideFlex(appBaseUrl) {
   };
 }
 
-function generateQuestionForUser(userId, categoryHint = '') {
-  const userState = userStateMap.get(userId) || globalLatestDeck || {};
-  const deckTitle = userState.deckTitle || 'โครงงานวิจัยและการพัฒนาระบบ';
-  const slides = Array.isArray(userState.slides) ? userState.slides : [];
-  const nextIdx = Number(userState.questionCursor || 0);
-
-  const slideContextText =
-    slides.length > 0
-      ? slides
-          .slice(0, 5)
-          .map((s, i) => `หน้า ${i + 1} (${s.title}): ${(s.points || []).join(', ')}`)
-          .join(' | ')
-      : deckTitle;
-
-  const firstSlideTitle = slides[0]?.title || 'ที่มาและความสำคัญของปัญหา';
-  const methodSlide =
-    slides.find((s) => /วิธี|สถาปัตยกรรม|ระบบ|การออกแบบ|โมเดล|เทคนิค/.test(s.title)) ||
-    slides[Math.min(2, slides.length - 1)];
-  const resultSlide =
-    slides.find((s) => /ผล|การทดลอง|ประเมิน|ทดสอบ|ความแม่นยำ/.test(s.title)) ||
-    slides[Math.min(3, slides.length - 1)];
-
-  const questionBank = [
-    {
-      tag: 'หมวด [P] ที่มาและขอบเขตปัญหา',
-      persona: 'กรรมการสายวิชาการ',
-      q: `จากสไลด์เรื่อง "${deckTitle}" (${firstSlideTitle}) อะไรคือจุดเด่นหรือความแตกต่างที่สำคัญที่สุดเมื่อเทียบกับวิธีการหรือระบบที่มีอยู่เดิมครับ?`,
-      tip: 'ตอบให้ตรงประเด็นในประโยคแรก (Answer) ตามด้วยเหตุผลเปรียบเทียบ (Reason) และยกตัวอย่างจากสไลด์ (Evidence)',
-    },
-    {
-      tag: 'หมวด [M] ระเบียบวิธีและเทคนิค',
-      persona: 'กรรมการสายเทคนิค',
-      q: `ในส่วนของ "${methodSlide?.title || 'วิธีการดำเนินงาน'}" ทำไมทีมผู้พัฒนาถึงเลือกใช้วิธีการหรือเทคโนโลยีนี้ และหากข้อมูลจริงมีความซับซ้อนขึ้น ระบบจะรับมืออย่างไรครับ?`,
-      tip: 'อธิบายเหตุผลที่เลือกใช้เครื่องมือนี้ 1-2 ข้อ พร้อมระบุการควบคุมขอบเขตงานให้ชัดเจน',
-    },
-    {
-      tag: 'หมวด [R] การวัดผลและการนำไปใช้จริง',
-      persona: 'กรรมการสายประยุกต์ใช้งาน',
-      q: `จาก "${resultSlide?.title || 'ผลการทดลองและการประเมินผล'}" หากนำระบบ "${deckTitle}" ไปใช้งานจริงกับกลุ่มเป้าหมาย อะไรคือข้อจำกัดสำคัญที่สุดและวางแผนพัฒนาต่อยอดอย่างไรครับ?`,
-      tip: 'ยอมรับข้อจำกัดตามความจริงอย่างมืออาชีพ พร้อมเสนอแนวทางพัฒนาต่อยอดในระยะถัดไป',
-    },
-  ];
-
-  let picked = questionBank[nextIdx % questionBank.length];
-  if (categoryHint.includes('เทคนิค')) {
-    picked = questionBank[1];
-  } else if (categoryHint.includes('ใช้งานจริง')) {
-    picked = questionBank[2];
-  }
-
-  userStateMap.set(userId, {
-    ...userState,
-    deckTitle,
-    slides,
-    slideContextText,
-    lastQuestion: picked.q,
-    lastQuestionTag: picked.tag,
-    questionCursor: nextIdx + 1,
-  });
-
-  return { ...picked, deckTitle };
-}
-
-function buildQuestionFlex({ tag, persona, q, tip, deckTitle }) {
-  return {
-    type: 'flex',
-    altText: `คำถามซ้อมสอบ: ${q}`,
-    quickReply: buildQuickReplyItems(),
-    contents: {
-      type: 'bubble',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#FFF4F0',
-        paddingAll: '16px',
-        contents: [
-          {
-            type: 'text',
-            text: `${persona} · ${tag}`,
-            color: '#D95D39',
-            size: 'xs',
-            weight: 'bold',
-          },
-          {
-            type: 'text',
-            text: `หัวข้อ: ${deckTitle}`,
-            color: '#666666',
-            size: 'xxs',
-            margin: 'xs',
-            wrap: true,
-          },
-        ],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        paddingAll: '18px',
-        contents: [
-          {
-            type: 'text',
-            text: `“${q}”`,
-            weight: 'bold',
-            size: 'md',
-            color: '#1F1E1D',
-            wrap: true,
-          },
-          {
-            type: 'separator',
-            margin: 'md',
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'xs',
-            margin: 'md',
-            contents: [
-              {
-                type: 'text',
-                text: '💡 เทคนิคการตอบ (สูตร A-R-E):',
-                size: 'xs',
-                weight: 'bold',
-                color: '#1F1E1D',
-              },
-              {
-                type: 'text',
-                text: tip,
-                size: 'xs',
-                color: '#666666',
-                wrap: true,
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#F7F5F0',
-            cornerRadius: '8px',
-            paddingAll: '12px',
-            margin: 'md',
-            contents: [
-              {
-                type: 'text',
-                text: '🎙️ วิธีตอบ: กดปุ่มรูปลำโพง/ไมโครโฟนในช่องแชท LINE เพื่ออัดเสียงพูดตอบคำถามนี้ได้เลยครับ! (แนะนำ 15–45 วินาที)',
-                size: 'xs',
-                color: '#D95D39',
-                weight: 'bold',
-                wrap: true,
-              },
-            ],
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'button',
-            style: 'secondary',
-            height: 'sm',
-            action: {
-              type: 'message',
-              label: '🔄 เปลี่ยนคำถามข้อใหม่',
-              text: 'สุ่มคำถามจากสไลด์',
-            },
-          },
-        ],
-      },
-    },
-  };
-}
-
-function buildVoiceScorecardFlex({
-  deckTitle,
-  question,
-  durationSec,
-  wpm,
-  score,
-  transcript,
-  fillers,
-  strengths,
-  improvement,
-  betterAnswer,
-  rehearsalUrl,
-}) {
-  const fillersText =
-    Array.isArray(fillers) && fillers.length > 0 ? fillers.join(', ') : 'ไม่พบคำติดปาก (ดีมาก!)';
-  const paceLabel =
-    wpm > 160
-      ? 'พูดค่อนข้างเร็ว (>160 คำ/นาที)'
-      : wpm > 0 && wpm < 95
-        ? 'พูดค่อนข้างช้า (<95 คำ/นาที)'
-        : 'จังหวะเหมาะสม (เกณฑ์ 125–145 คำ/นาที)';
-
-  const footerButtons = [
-    {
-      type: 'button',
-      style: 'primary',
-      color: '#D95D39',
-      height: 'sm',
-      action: {
-        type: 'message',
-        label: '➡️ สุ่มคำถามข้อต่อไป',
-        text: 'สุ่มคำถามจากสไลด์',
-      },
-    },
-  ];
-
-  if (rehearsalUrl && rehearsalUrl.length <= 990) {
-    footerButtons.push({
-      type: 'button',
-      style: 'secondary',
-      height: 'sm',
-      action: {
-        type: 'uri',
-        label: '🎯 เปิดห้องซ้อมใหญ่บนเว็บ',
-        uri: rehearsalUrl,
-      },
-    });
-  }
-
-  return {
-    type: 'flex',
-    altText: `ผลประเมินเสียงตอบคำถาม: ${score}/10 คะแนน`,
-    quickReply: buildQuickReplyItems(),
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: {
-        type: 'box',
-        layout: 'horizontal',
-        backgroundColor: '#1F1E1D',
-        paddingAll: '16px',
-        alignItems: 'center',
-        contents: [
-          {
-            type: 'box',
-            layout: 'vertical',
-            flex: 1,
-            contents: [
-              {
-                type: 'text',
-                text: 'VOICE Q&A SCORECARD',
-                color: '#D95D39',
-                size: 'xxs',
-                weight: 'bold',
-              },
-              {
-                type: 'text',
-                text: 'ผลวิเคราะห์เสียงตอบคำถาม',
-                color: '#FFFFFF',
-                size: 'md',
-                weight: 'bold',
-              },
-              {
-                type: 'text',
-                text: deckTitle,
-                color: '#BBBBBB',
-                size: 'xxs',
-                wrap: true,
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#D95D39',
-            cornerRadius: '8px',
-            paddingAll: '8px',
-            flex: 0,
-            contents: [
-              {
-                type: 'text',
-                text: `${score}/10`,
-                color: '#FFFFFF',
-                size: 'lg',
-                weight: 'bold',
-                align: 'center',
-              },
-            ],
-          },
-        ],
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '16px',
-        contents: [
-          {
-            type: 'text',
-            text: `❓ คำถาม: ${question}`,
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'box',
-            layout: 'horizontal',
-            backgroundColor: '#F7F5F0',
-            cornerRadius: '8px',
-            paddingAll: '10px',
-            margin: 'sm',
-            contents: [
-              {
-                type: 'box',
-                layout: 'vertical',
-                flex: 1,
-                contents: [
-                  {
-                    type: 'text',
-                    text: 'เวลาที่พูด',
-                    size: 'xxs',
-                    color: '#666666',
-                  },
-                  {
-                    type: 'text',
-                    text: `${durationSec} วินาที`,
-                    size: 'sm',
-                    weight: 'bold',
-                    color: '#1F1E1D',
-                  },
-                ],
-              },
-              {
-                type: 'box',
-                layout: 'vertical',
-                flex: 1,
-                contents: [
-                  {
-                    type: 'text',
-                    text: 'ความเร็วเฉลี่ย',
-                    size: 'xxs',
-                    color: '#666666',
-                  },
-                  {
-                    type: 'text',
-                    text: `${wpm} คำ/นาที`,
-                    size: 'sm',
-                    weight: 'bold',
-                    color: '#1F1E1D',
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'text',
-            text: `⏱️ จังหวะ: ${paceLabel} · คำติดปาก: ${fillersText}`,
-            size: 'xxs',
-            color: '#555555',
-            wrap: true,
-          },
-          ...(transcript
-            ? [
-                {
-                  type: 'text',
-                  text: `🗣️ เสียงที่ถอดได้: “${transcript.slice(0, 220)}”`,
-                  size: 'xs',
-                  color: '#1F1E1D',
-                  wrap: true,
-                  margin: 'sm',
-                },
-              ]
-            : []),
-          {
-            type: 'separator',
-            margin: 'md',
-          },
-          {
-            type: 'text',
-            text: `✅ จุดเด่น: ${strengths}`,
-            size: 'xs',
-            color: '#1F1E1D',
-            wrap: true,
-            margin: 'sm',
-          },
-          {
-            type: 'text',
-            text: `🔧 ควรเสริม: ${improvement}`,
-            size: 'xs',
-            color: '#D95D39',
-            wrap: true,
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#FFF4F0',
-            cornerRadius: '8px',
-            paddingAll: '10px',
-            margin: 'sm',
-            contents: [
-              {
-                type: 'text',
-                text: '💡 แนวทางตอบแบบ A-R-E ที่แนะนำ:',
-                size: 'xxs',
-                weight: 'bold',
-                color: '#D95D39',
-              },
-              {
-                type: 'text',
-                text: betterAnswer,
-                size: 'xs',
-                color: '#1F1E1D',
-                wrap: true,
-                margin: 'xs',
-              },
-            ],
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: footerButtons,
-      },
-    },
-  };
-}
-
 async function extractPdfPagesText(pdfBuffer) {
   try {
     await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
@@ -743,7 +300,7 @@ async function extractPdfPagesText(pdfBuffer) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 10);
+    const maxPages = Math.min(doc.numPages, 12);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -755,7 +312,7 @@ async function extractPdfPagesText(pdfBuffer) {
       if (text) {
         pages.push({
           page: i,
-          text: text.slice(0, 240),
+          text: text.slice(0, 350),
         });
       }
     }
@@ -764,33 +321,6 @@ async function extractPdfPagesText(pdfBuffer) {
     console.warn('[LINE PDF Bridge] pdfjs extract fallback:', err?.message);
     return { numPages: 0, pages: [] };
   }
-}
-
-function buildSlidesFromExtractedPages(pages) {
-  const validPages = pages.filter((p) => p.text && p.text.length > 2);
-  if (validPages.length === 0) {
-    return { isCustom: false, slides: [] };
-  }
-
-  return {
-    isCustom: true,
-    slides: validPages.map((p, idx) => {
-      const sentences = p.text
-        .split(/(?<=[.!?])\s+|\s{2,}/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const title = (sentences[0] || `สไลด์หน้าที่ ${p.page || idx + 1}`).slice(0, 70);
-      const points =
-        sentences.slice(1, 4).length > 0
-          ? sentences.slice(1, 4).map((s) => s.slice(0, 80))
-          : [p.text.slice(0, 90)];
-      const script =
-        idx === 0
-          ? `สวัสดีคณะกรรมการทุกท่านครับ สำหรับสไลด์แรก หัวข้อ ${title} เนื้อหาสำคัญคือ ${p.text.slice(0, 200)} ครับ`
-          : `ในสไลด์หน้าที่ ${p.page || idx + 1} หัวข้อ ${title} ประเด็นสำคัญคือ ${p.text.slice(0, 200)} ครับ`;
-      return { title, points, script };
-    }),
-  };
 }
 
 async function replyToLine(channelAccessToken, replyToken, messages) {
@@ -825,6 +355,11 @@ export default async function handler(req, res) {
     const appBaseUrl = `https://${hostHeader}`;
     const urlObj = new URL(req.url, appBaseUrl);
 
+    const channelSecret = (
+      urlObj.searchParams.get('secret') ||
+      process.env.LINE_CHANNEL_SECRET ||
+      DEFAULT_CHANNEL_SECRET
+    ).trim();
     const channelAccessToken = (
       urlObj.searchParams.get('token') ||
       process.env.LINE_CHANNEL_ACCESS_TOKEN ||
@@ -851,37 +386,40 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, verified: true });
     }
 
-    const nonHandledEvents = [];
+    let modified = false;
+    const forwardEvents = [];
 
     for (const ev of events) {
-      const userId = ev?.source?.userId || 'default';
-
-      // 1. เมื่อผู้ใช้กดแอดเพื่อน (follow) หรือพิมพ์ขอเมนู/ขั้นตอนการใช้งาน (ส่วนที่ 2)
+      // 1. เมื่อกดแอดเพื่อนใหม่ (follow) -> แสดงการ์ดบอก Flow 4 ขั้นตอน
       if (ev?.type === 'follow' && ev.replyToken && channelAccessToken) {
         await replyToLine(channelAccessToken, ev.replyToken, [buildFlowGuideFlex(appBaseUrl)]);
         continue;
       }
 
-      if (ev?.type === 'message' && ev?.message?.type === 'text' && ev.replyToken) {
+      // 2. เมื่อส่งข้อความตัวหนังสือ (text)
+      if (ev?.type === 'message' && ev?.message?.type === 'text') {
         const text = String(ev.message.text || '').trim();
 
-        // คำสั่งเปิดการ์ดแสดง Flow 4 ขั้นตอน
-        if (/^(เมนู|เริ่มต้น|วิธีใช้|วิธีใช้งาน|ขั้นตอน|ช่วยเหลือ|menu|help|flow)$/i.test(text)) {
+        // คำสั่งขอดูเมนู / Flow การใช้งาน
+        if (
+          ev.replyToken &&
+          /^(เมนู|เริ่มต้น|วิธีใช้|วิธีใช้งาน|ขั้นตอน|ช่วยเหลือ|menu|help|flow)$/i.test(text)
+        ) {
           await replyToLine(channelAccessToken, ev.replyToken, [buildFlowGuideFlex(appBaseUrl)]);
           continue;
         }
 
         // คำสั่งอธิบายวิธีส่งสไลด์
-        if (/^(วิธีส่งสไลด์|ส่งสไลด์ยังไง|วิธีส่งไฟล์)$/i.test(text)) {
+        if (ev.replyToken && /^(วิธีส่งสไลด์|ส่งสไลด์ยังไง|วิธีส่งไฟล์)$/i.test(text)) {
           await replyToLine(channelAccessToken, ev.replyToken, [
             {
               type: 'text',
               text: [
-                '📄 วิธีส่งข้อมูลให้โค้ช AI จัดสไลด์และบทพูด (เลือกได้ 3 แบบ):',
+                '📄 วิธีส่งข้อมูลให้ LangMind AI จัดสไลด์และบทพูด (เลือกได้ 3 แบบ):',
                 '',
-                '1. ส่งไฟล์ .PDF ของสไลด์เข้ามาในแชทนี้ได้เลย ระบบจะอ่านสไลด์ สร้างบทพูด และส่งปุ่มเข้าห้องซ้อมให้ทันที',
-                '2. ส่งรูปภาพหน้าสไลด์ (JPG/PNG) เข้ามาในแชท',
-                '3. พิมพ์หัวข้อและเนื้อหา เช่น:\n"ช่วยจัดสไลด์และบทพูดเรื่อง ระบบคัดแยกขยะ AI เวลา 5 นาที สำหรับพรีเซนต์อาจารย์"',
+                '1. ส่งไฟล์ .PDF ของสไลด์เข้ามาในแชทนี้ได้เลย ระบบจะแกะข้อความทุกหน้าส่งเข้า LangMind เพื่อสรุปบทพูดและสร้างลิงก์เข้าห้องซ้อมให้ทันที',
+                '2. ส่งรูปภาพหน้าสไลด์ (JPG/PNG) เข้ามาในแชทให้ LangMind อ่านด้วย Vision & OCR',
+                '3. พิมพ์หัวข้อและเนื้อหาโปรเจกต์/งานวิจัยเข้ามาในแชทโดยตรง',
               ].join('\n'),
               quickReply: buildQuickReplyItems(),
             },
@@ -889,15 +427,11 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ (ส่วนที่ 3)
-        if (/^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(text)) {
-          const qData = generateQuestionForUser(userId, text);
-          await replyToLine(channelAccessToken, ev.replyToken, [buildQuestionFlex(qData)]);
-          continue;
-        }
-
         // คำสั่งดึงผลการซ้อมล่าสุดจากหน้าสรุปมาทำรายงาน PDF ให้ผู้ใช้อ่าน (ส่วนที่ 4)
-        if (/^(ดึงผลซ้อม|ดึงผลซ้อมล่าสุด|สรุปผล|ผลซ้อม|รายงานผล|ขอผลซ้อม)$/i.test(text)) {
+        if (
+          ev.replyToken &&
+          /^(ดึงผลซ้อม|ดึงผลซ้อมล่าสุด|สรุปผล|ผลซ้อม|รายงานผล|ขอผลซ้อม)$/i.test(text)
+        ) {
           let dbSession = null;
           try {
             const controller = new AbortController();
@@ -913,21 +447,8 @@ export default async function handler(req, res) {
               }
             }
           } catch (err) {
-            console.warn('[LINE Summary Report] Fallback to userState:', err?.message);
+            console.warn('[LINE Summary Report] Fetch latest-session failed:', err?.message);
           }
-
-          const userState = userStateMap.get(userId) || globalLatestDeck || {};
-          const fallbackSlides = Array.isArray(userState.slides)
-            ? userState.slides.map((s, idx) => ({
-                index: idx,
-                title: s.title,
-                duration: 55,
-                wpm: 135,
-                fillersCount: 0,
-                deadAirCount: 0,
-                transcript: s.script,
-              }))
-            : [];
 
           const reportPayload = dbSession
             ? {
@@ -948,27 +469,25 @@ export default async function handler(req, res) {
                       deadAirCount: s.deadAirCount || 0,
                       transcript: String(s.transcript || '').slice(0, 260),
                     }))
-                  : fallbackSlides,
+                  : [],
                 qa: Array.isArray(dbSession.qaJson)
                   ? dbSession.qaJson.slice(0, 5).map((q) => ({
                       question: String(q.question || '').slice(0, 140),
                       answerTranscript: String(q.answerTranscript || '').slice(0, 220),
                       score: q.score,
                     }))
-                  : userState.lastVoiceQa
-                    ? [userState.lastVoiceQa]
-                    : [],
+                  : [],
                 summary: dbSession.summaryJson || null,
               }
             : {
-                deckName: userState.deckTitle || 'ชุดสไลด์ซ้อมนำเสนอ',
+                deckName: 'รายงานสรุปผลการซ้อมพรีเซนต์ล่าสุด',
                 audience: 'teacher',
-                totalDurationSec: fallbackSlides.length * 55 || 275,
-                avgWpm: userState.lastVoiceQa?.wpm || 135,
+                totalDurationSec: 275,
+                avgWpm: 135,
                 avgEyeContactPct: 78,
-                slideCount: fallbackSlides.length || 5,
-                slides: fallbackSlides,
-                qa: userState.lastVoiceQa ? [userState.lastVoiceQa] : [],
+                slideCount: 5,
+                slides: [],
+                qa: [],
                 summary: null,
               };
 
@@ -1080,7 +599,7 @@ export default async function handler(req, res) {
                     },
                     {
                       type: 'text',
-                      text: `สรุปผลการซ้อมครบ ${reportPayload.slides.length || reportPayload.slideCount || 5} สไลด์ พร้อมตารางวิเคราะห์คำพูดรายหน้าและผลคะแนน Q&A จัดอยู่ในรูปแบบเอกสารรายงานขนาด A4 เรียบร้อยแล้วครับ`,
+                      text: `ดึงข้อมูลจากหน้าสรุปผลการซ้อม (${reportPayload.slides.length || reportPayload.slideCount || 5} สไลด์) พร้อมตารางคำพูดรายหน้าและผลคะแนน Q&A จัดทำเป็นเอกสารรายงาน PDF ขนาด A4 เรียบร้อยแล้วครับ`,
                       size: 'xs',
                       color: '#555555',
                       wrap: true,
@@ -1111,27 +630,41 @@ export default async function handler(req, res) {
           ]);
           continue;
         }
+
+        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ส่งเข้าสมองของ LangMind โดยตรง!
+        if (/^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(text)) {
+          modified = true;
+          const focusMode = text.includes('เทคนิค')
+            ? 'หมวด [M] ระเบียบวิธีวิจัยและเทคนิค'
+            : text.includes('ใช้งานจริง')
+              ? 'หมวด [R] การวัดผลและการนำไปใช้งานจริง'
+              : 'เนื้อหาสำคัญในสไลด์หรือโปรเจกต์';
+
+          forwardEvents.push({
+            ...ev,
+            message: {
+              id: ev.message.id,
+              type: 'text',
+              text: `ช่วยตั้งคำถามกรรมการสอบ 1 ข้อที่เจาะจงจากเนื้อหาสไลด์/โปรเจกต์ที่อยู่ในบทสนทนาก่อนหน้าของเรา (เน้น${focusMode}) เพื่อทดสอบผมเสมือนอยู่ในห้องสอบจริง โดยถามแค่คำถามเดียวสั้นๆ คมๆ (ยังไม่ต้องเฉลยคำตอบ) และบอกให้ผมกดปุ่มไมโครโฟนอัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ในแชท LINE ได้เลยครับ`,
+            },
+          });
+          continue;
+        }
+
+        forwardEvents.push(ev);
+        continue;
       }
 
-      // 2. เมื่อผู้ใช้ส่งข้อความเสียง (Voice Message / type === 'audio') เพื่อพูดตอบคำถามใน LINE (ส่วนที่ 3)
-      if (
-        ev?.type === 'message' &&
-        ev?.message?.type === 'audio' &&
-        ev.replyToken &&
-        channelAccessToken
-      ) {
+      // 3. เมื่อผู้ใช้กดไมค์อัดเสียงพูดตอบใน LINE (type === 'audio') -> ถอดเสียงแล้วส่งให้ LangMind ประมวลผลตรวจคำตอบ!
+      if (ev?.type === 'message' && ev?.message?.type === 'audio' && channelAccessToken) {
+        modified = true;
         const messageId = ev.message.id;
         const durationSec = Math.max(1, Math.round(Number(ev.message.duration || 15000) / 1000));
-        const userState = userStateMap.get(userId) || globalLatestDeck || {};
-        const deckTitle = userState.deckTitle || 'การซ้อมตอบคำถามโครงงาน';
-        const question =
-          userState.lastQuestion ||
-          `จงอธิบายที่มา จุดเด่น และผลการทดลองสำคัญของโครงงาน "${deckTitle}"`;
+        let transcript = '';
 
-        let evalResult = null;
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 5000);
+          const timer = setTimeout(() => controller.abort(), 6000);
           const audioRes = await fetch(
             `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
             {
@@ -1149,77 +682,44 @@ export default async function handler(req, res) {
                 audioBase64,
                 mimeType: 'audio/mp4',
                 durationSec,
-                question,
-                deckTitle,
               }),
               signal: controller.signal,
             });
             if (evalRes.ok) {
               const json = await evalRes.json();
-              if (json?.ok) {
-                evalResult = json;
+              if (json?.transcript) {
+                transcript = String(json.transcript).trim();
               }
             }
           }
           clearTimeout(timer);
         } catch (err) {
-          console.warn('[LINE Voice Q&A] Fallback to duration analysis:', err?.message);
+          console.warn('[LINE Voice -> LangMind] Audio transcribe fallback:', err?.message);
         }
 
-        const transcript = evalResult?.transcript || '';
         const wordCount = transcript
-          ? transcript.trim().split(/\s+/).length * 3
+          ? transcript.split(/\s+/).length * 3
           : Math.round(durationSec * 2.2);
         const wpm = Math.round((wordCount / durationSec) * 60);
-        const score =
-          evalResult?.score ||
-          (durationSec >= 15 && durationSec <= 60 ? 8 : durationSec >= 8 ? 7 : 6);
-        const fillers = evalResult?.fillers || [];
-        const strengths =
-          evalResult?.strengths ||
-          (durationSec >= 15
-            ? `ใช้เวลาอธิบาย ${durationSec} วินาที มีความต่อเนื่องและน้ำเสียงชัดเจนดีครับ`
-            : `ตอบกระชับภายใน ${durationSec} วินาที เปิดประเด็นได้รวดเร็วครับ`);
-        const improvement =
-          evalResult?.improvement ||
-          (durationSec < 12
-            ? 'ควรขยายความส่วนเหตุผล (Reason) และยกตัวเลขผลการทดลอง (Evidence) เพิ่มเติมอีกเล็กน้อย'
-            : 'ระวังการเว้นจังหวะท้ายประโยค และสรุปปิดท้ายให้เชื่อมกลับเข้าสู่วัตถุประสงค์ของงาน');
-        const betterAnswer =
-          evalResult?.betterAnswer ||
-          `“สำหรับประเด็นนี้ จุดเด่นหลักของ ${deckTitle} คือการแก้ปัญหาที่ต้นเหตุ [Answer] เนื่องจากระบบเดิมยังมีข้อจำกัดด้านเวลาและความแม่นยำ [Reason] ซึ่งจากผลการทดสอบของเราสามารถเพิ่มประสิทธิภาพและใช้งานได้จริงตามขอบเขตที่กำหนดไว้ครับ [Evidence]”`;
 
-        userStateMap.set(userId, {
-          ...userState,
-          lastVoiceQa: {
-            question,
-            answerTranscript: transcript || `(ตอบด้วยเสียงความยาว ${durationSec} วินาที)`,
-            score,
-            wpm,
+        const voicePromptToLangMind = transcript
+          ? `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE (ความยาวเสียง ${durationSec} วินาที, ความเร็วประมาณ ${wpm} คำ/นาที) ข้อความที่ถอดจากเสียงพูดของผมคือ:\n"${transcript}"\n\nกรุณาช่วยตรวจประเมินคำตอบนี้เทียบกับคำถามที่คุณเพิ่งถามและเนื้อหาสไลด์ของเรา ให้คะแนนเต็ม 10 วิเคราะห์จุดเด่น จุดที่ควรปรับปรุง (ทั้งด้านเนื้อหาและจังหวะการพูด ${wpm} คำ/นาที) พร้อมแนะนำตัวอย่างคำตอบที่คมชัดตามหลัก A-R-E (Answer-Reason-Evidence) ครับ`
+          : `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE ความยาว ${durationSec} วินาที (ความเร็วประมาณ ${wpm} คำ/นาที) กรุณาช่วยประเมินจังหวะเวลาการตอบคำถาม (${durationSec} วินาที) และให้แนวทางคำตอบที่ดีที่สุดตามหลัก A-R-E สำหรับคำถามที่คุณเพิ่งถามผมด้วยครับ`;
+
+        forwardEvents.push({
+          ...ev,
+          message: {
+            id: messageId,
+            type: 'text',
+            text: voicePromptToLangMind,
           },
         });
-
-        await replyToLine(channelAccessToken, ev.replyToken, [
-          buildVoiceScorecardFlex({
-            deckTitle,
-            question,
-            durationSec,
-            wpm,
-            score,
-            transcript,
-            fillers,
-            strengths,
-            improvement,
-            betterAnswer,
-            rehearsalUrl: userState.rehearsalUrl,
-          }),
-        ]);
         continue;
       }
 
-      // 3. เมื่อผู้ใช้ส่งไฟล์สไลด์ .PDF ใน LINE
-      const isFileMessage = ev?.type === 'message' && ev?.message?.type === 'file';
-      if (isFileMessage && ev.replyToken && channelAccessToken) {
+      // 4. เมื่อผู้ใช้ส่งไฟล์สไลด์ .PDF ใน LINE (type === 'file') -> แกะข้อความทุกหน้าส่งเข้าสมองของ LangMind!
+      if (ev?.type === 'message' && ev?.message?.type === 'file' && channelAccessToken) {
+        modified = true;
         const messageId = ev.message.id;
         const fileName = String(ev.message.fileName || 'slides.pdf').trim();
         const fileSize = Number(ev.message.fileSize || 0);
@@ -1232,13 +732,11 @@ export default async function handler(req, res) {
         if (isPdf && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
           try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 5500);
+            const timer = setTimeout(() => controller.abort(), 6500);
             const contentRes = await fetch(
               `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
               {
-                headers: {
-                  Authorization: `Bearer ${channelAccessToken}`,
-                },
+                headers: { Authorization: `Bearer ${channelAccessToken}` },
                 signal: controller.signal,
               },
             );
@@ -1250,167 +748,74 @@ export default async function handler(req, res) {
               totalPdfPages = numPages;
             }
           } catch (err) {
-            console.warn('[LINE PDF Bridge] Skip inline PDF extraction:', err?.message);
+            console.warn('[LINE PDF -> LangMind] Skip inline PDF extraction:', err?.message);
           }
         }
 
-        const { isCustom, slides } = buildSlidesFromExtractedPages(extractedPages);
-
-        const compactPayload = isCustom
-          ? {
-              n: cleanTitle,
-              a: 'teacher',
-              m: 'per_slide',
-              pm: 5,
-              qm: 5,
-              pdfId: messageId,
-              sl: slides.map((s) => ({
-                t: s.title,
-                p: s.points,
-                s: s.script,
-              })),
-            }
-          : {
-              n: cleanTitle,
-              a: 'teacher',
-              m: 'per_slide',
-              pm: 5,
-              qm: 5,
-              pdfId: messageId,
-              auto: 1,
-            };
-
-        const compressedBytes = zlib.deflateRawSync(
-          Buffer.from(JSON.stringify(compactPayload), 'utf8'),
-        );
-        const encodedZ = compressedBytes.toString('base64url');
-        const rehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
-
-        // บันทึกบริบทสไลด์ไว้สำหรับสุ่มคำถามซ้อมสอบด้วยเสียงใน LINE
-        const savedContext = {
-          deckTitle: cleanTitle,
-          slides,
-          rehearsalUrl,
-          questionCursor: 0,
+        const compactPayload = {
+          n: cleanTitle,
+          a: 'teacher',
+          m: 'per_slide',
+          pm: 5,
+          qm: 5,
+          pdfId: messageId,
+          auto: 1,
         };
-        userStateMap.set(userId, savedContext);
-        globalLatestDeck = savedContext;
+        const encodedZ = zlib
+          .deflateRawSync(Buffer.from(JSON.stringify(compactPayload), 'utf8'))
+          .toString('base64url');
+        const pdfRehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
 
-        let replyText = '';
-        if (isCustom) {
-          const slideLines = slides
-            .map(
-              (s, i) =>
-                `📌 หน้าที่ ${i + 1}: ${s.title}\n• ประเด็น: ${s.points.join(' / ')}\n🎙️ บทพูด: "${s.script}"`,
-            )
-            .join('\n\n');
-          replyText = [
-            `อ่านไฟล์สไลด์ "${fileName}" (${totalPdfPages || slides.length} หน้า) เรียบร้อยแล้วครับ! สรุปประเด็นและบทพูดจากเนื้อหาจริงในสไลด์ของคุณได้ดังนี้ครับ:\n`,
-            slideLines,
-            `\n🎯 กดปุ่มสีส้มด้านล่างเพื่อเปิดสไลด์ PDF จริงพร้อมบทพูดบนเว็บ หรือกดปุ่ม "สุ่มคำถามจากสไลด์" เพื่ออัดเสียงซ้อมตอบคำถามใน LINE ได้เลยครับ!`,
-          ].join('\n');
-        } else {
-          const sizeStr = fileSize ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB` : 'PDF';
-          replyText = [
-            `รับไฟล์สไลด์ "${fileName}" (${sizeStr}) เรียบร้อยแล้วครับ! 📄`,
-            `ระบบได้เชื่อมไฟล์ PDF ชุดนี้เข้ากับห้องซ้อมให้แล้ว คุณสามารถเลือกกดปุ่มด้านล่างเพื่อ:\n1) เปิดสไลด์ PDF จริงพร้อมบทพูดแนะนำบนหน้าเว็บทันที\n2) สุ่มคำถามกรรมการจากสไลด์ชุดนี้ แล้วกดไมค์พูดตอบใน LINE ได้เลยครับ!`,
-          ].join('\n\n');
-        }
+        const extractedTextBlock =
+          extractedPages.length > 0
+            ? `เนื้อหาจริงที่ดึงได้จากไฟล์ PDF (${totalPdfPages || extractedPages.length} หน้า):\n` +
+              extractedPages.map((p) => `- หน้าที่ ${p.page}: ${p.text}`).join('\n')
+            : `ชื่อไฟล์สไลด์: "${cleanTitle}" (ขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB)`;
 
-        const replyMessages = [
-          {
+        const pdfPromptToLangMind = [
+          `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" เข้ามาในแชท LINE ครับ`,
+          extractedTextBlock,
+          `กรุณาอ่านเนื้อหาสไลด์ชุดนี้แล้วสรุปโครงสร้างสไลด์และร่างบทพูดแนะนำให้ผมตามขั้นตอนของคุณ และแนบลิงก์เข้าห้องซ้อมพรีเซนต์ที่เชื่อมกับไฟล์ PDF ชุดนี้ไว้ท้ายข้อความด้วยครับ: ${pdfRehearsalUrl}`,
+          `พร้อมแจ้งท้ายข้อความว่า หากต้องการซ้อมตอบคำถามจากสไลด์ชุดนี้ ให้พิมพ์ว่า "สุ่มคำถามจากสไลด์" ได้เลยครับ`,
+        ].join('\n\n');
+
+        forwardEvents.push({
+          ...ev,
+          message: {
+            id: messageId,
             type: 'text',
-            text: replyText.slice(0, 4800),
-            quickReply: buildQuickReplyItems(),
+            text: pdfPromptToLangMind,
           },
-        ];
-
-        if (rehearsalUrl.length <= 990) {
-          replyMessages.push({
-            type: 'flex',
-            altText: `เข้าห้องซ้อมพรีเซนต์: ${cleanTitle}`,
-            quickReply: buildQuickReplyItems(),
-            contents: {
-              type: 'bubble',
-              body: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'text',
-                    text: 'ICIT REHEARSAL COACH',
-                    weight: 'bold',
-                    size: 'xs',
-                    color: '#D95D39',
-                  },
-                  {
-                    type: 'text',
-                    text: cleanTitle,
-                    weight: 'bold',
-                    size: 'lg',
-                    wrap: true,
-                  },
-                  {
-                    type: 'text',
-                    text: isCustom
-                      ? `อ่านสไลด์จริงครบ ${totalPdfPages || slides.length} หน้า · พร้อมซ้อมพูดและถาม-ตอบ`
-                      : 'เชื่อมไฟล์ PDF จาก LINE แล้ว · กดเพื่อโหลดสไลด์จริงบนเว็บหรือซ้อมถาม-ตอบ',
-                    size: 'xs',
-                    color: '#666666',
-                    wrap: true,
-                  },
-                ],
-              },
-              footer: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'button',
-                    style: 'primary',
-                    color: '#D95D39',
-                    action: {
-                      type: 'uri',
-                      label: '🎯 เริ่มซ้อมพรีเซนต์บนเว็บทันที',
-                      uri: rehearsalUrl,
-                    },
-                  },
-                  {
-                    type: 'button',
-                    style: 'secondary',
-                    action: {
-                      type: 'message',
-                      label: '❓ สุ่มคำถามจากสไลด์ (พูดตอบได้)',
-                      text: 'สุ่มคำถามจากสไลด์',
-                    },
-                  },
-                ],
-              },
-            },
-          });
-        }
-
-        await replyToLine(channelAccessToken, ev.replyToken, replyMessages);
+        });
         continue;
       }
 
-      nonHandledEvents.push(ev);
+      forwardEvents.push(ev);
     }
 
-    if (nonHandledEvents.length === 0) {
-      return res.status(200).json({ ok: true, handledBy: 'line-webhook-bridge' });
+    if (forwardEvents.length === 0) {
+      return res.status(200).json({ ok: true, handledBy: 'line-webhook-menu' });
     }
 
-    const signature = req.headers['x-line-signature'] || '';
+    const forwardBody = modified
+      ? JSON.stringify({ ...payload, events: forwardEvents })
+      : rawText;
+
+    let signature = req.headers['x-line-signature'] || '';
+    if (modified && channelSecret) {
+      signature = crypto
+        .createHmac('sha256', channelSecret)
+        .update(forwardBody, 'utf8')
+        .digest('base64');
+    }
+
     const forwardRes = await fetch(langmindWebhook, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(signature ? { 'x-line-signature': signature } : {}),
       },
-      body: rawBuffer,
+      body: forwardBody,
     });
 
     const respText = await forwardRes.text().catch(() => '');
