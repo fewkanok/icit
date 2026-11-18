@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupRtc } from '../lib/useGroupRtc';
+import { SkeletonQaCard } from './ui/Skeleton';
 import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import {
   analyze,
@@ -656,15 +657,10 @@ export default function GroupQaView({
             <RemotePeerAudio key={peerId} stream={stream} volume={peerVolumes[peerId] ?? 1} />
           ) : null,
         )}
-        <div className="rounded-2xl border border-line bg-white p-10 text-center">
-          <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-ink border-t-transparent" />
-          <p className="mt-4 text-sm font-medium text-ink">
-            กำลังเตรียมเสียงอ่านคำถามจาก AI ให้พร้อม...
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            รอสักครู่ เมื่อเสียงพร้อมแล้วจึงจะเริ่มนับเวลาและอ่านโจทย์ข้อแรก
-          </p>
-        </div>
+        <SkeletonQaCard
+          message="กำลังเตรียมเสียงอ่านคำถามจาก AI ให้พร้อม..."
+          subMessage="รอสักครู่ เมื่อเสียงพร้อมแล้วจึงจะเริ่มนับเวลาและอ่านโจทย์ข้อแรก"
+        />
       </div>
     );
   }

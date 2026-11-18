@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { compareRoundsWithAi } from '../lib/api';
 import { formatTime } from '../lib/metrics';
 import { askConfirm } from './ConfirmModal';
+import GeminiCooldownButton from './ui/GeminiCooldownButton';
 
 function formatDeltaBadge(diff, betterWhen) {
   if (diff === 0 || !Number.isFinite(diff)) {
@@ -272,14 +273,14 @@ export default function RoundComparisonCard({
             <p className="text-xs text-muted">
               ต้องการให้ AI อ่านคำพูดทั้ง 2 รอบแล้วสรุปจุดที่ดีขึ้นให้ไหม?
             </p>
-            <button
-              type="button"
-              disabled={aiLoading}
+            <GeminiCooldownButton
+              loading={aiLoading}
+              loadingLabel="กำลังวิเคราะห์พัฒนาการ..."
               onClick={handleAnalyzeCompare}
-              className="rounded-xl border border-ink bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink/90 disabled:opacity-50 cursor-pointer"
+              className="rounded-xl border border-ink bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink/90 cursor-pointer"
             >
-              {aiLoading ? 'กำลังวิเคราะห์พัฒนาการ...' : 'ให้ AI วิเคราะห์พัฒนาการ (1 Token)'}
-            </button>
+              ให้ AI วิเคราะห์พัฒนาการ (1 Token)
+            </GeminiCooldownButton>
           </div>
         ) : (
           <div className="space-y-2.5 rounded-xl border border-line bg-paper/50 p-4">

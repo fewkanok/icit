@@ -1,6 +1,13 @@
 import { supabase } from './supabase';
+import { recordGeminiCall, triggerGeminiCooldown } from './geminiRateLimit';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+function handleAuthExpired(res, hadToken) {
+  if (res.status === 401 && hadToken && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('session-expired'));
+  }
+}
 
 async function getAuthHeaders() {
   if (!supabase) return {};
@@ -11,6 +18,8 @@ async function getAuthHeaders() {
 
 async function postJson(path, body, timeoutMs = 30000) {
   const authHeaders = await getAuthHeaders();
+  const isGemini = path.startsWith('/api/gemini/');
+  if (isGemini) recordGeminiCall();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
@@ -35,6 +44,13 @@ async function postJson(path, body, timeoutMs = 30000) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    handleAuthExpired(res, Boolean(authHeaders.Authorization));
+    if (isGemini && (res.status === 429 || res.status === 503)) {
+      triggerGeminiCooldown(25);
+      throw new Error(
+        data.message || 'ระบบ AI ถูกใช้งานถี่เกินไป (จำกัด 5 ครั้ง/นาที) กรุณารอสักครู่แล้วลองใหม่',
+      );
+    }
     throw new Error(data.message || 'ไม่สามารถเชื่อมต่อระบบ AI ได้');
   }
   if (typeof data?.tokenBalance === 'number' && typeof window !== 'undefined') {
@@ -48,6 +64,7 @@ async function getJson(path) {
   const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    handleAuthExpired(res, Boolean(authHeaders.Authorization));
     throw new Error(data.message || 'ไม่สามารถโหลดข้อมูลได้');
   }
   return data;

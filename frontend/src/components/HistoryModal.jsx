@@ -10,6 +10,9 @@ import { deleteLocalSessionVideo, getLocalSessionVideo } from '../lib/videoStore
 import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
 import RoundComparisonCard from './RoundComparisonCard';
+import QaResultCard from './QaResultCard';
+import { SkeletonDetailView, SkeletonHistoryList } from './ui/Skeleton';
+import { EmptyState, ErrorState, NoSearchResults } from './ui/StateViews';
 
 export default function HistoryModal({ open, onClose }) {
   const [sessions, setSessions] = useState([]);
@@ -23,8 +26,25 @@ export default function HistoryModal({ open, onClose }) {
   const [slidePage, setSlidePage] = useState(1);
   const [qaPage, setQaPage] = useState(1);
   const [sessionPage, setSessionPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [modeFilter, setModeFilter] = useState('all'); // 'all' | 'solo' | 'group'
   const [videoInfo, setVideoInfo] = useState(null); // { url, source: 'local' | 'cloud' }
   const [videoLoading, setVideoLoading] = useState(false);
+
+  const loadHistoryList = () => {
+    setLoading(true);
+    setError(null);
+    fetchSessions()
+      .then((list) => {
+        setSessions(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => {
+        setError(err.message || 'โหลดประวัติการซ้อมไม่สำเร็จ');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -114,6 +134,18 @@ export default function HistoryModal({ open, onClose }) {
     };
   }, [selected, sessions]);
 
+  const filteredSessions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return sessions.filter((s) => {
+      if (modeFilter === 'solo' && s.isGroup) return false;
+      if (modeFilter === 'group' && !s.isGroup) return false;
+      if (q && !(s.deckName || '').toLowerCase().includes(q) && !(s.roomCode || '').toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+  }, [sessions, searchQuery, modeFilter]);
+
   if (!open) return null;
 
   const handleSelect = async (id) => {
@@ -134,7 +166,7 @@ export default function HistoryModal({ open, onClose }) {
   const aiSlides = Array.isArray(selected?.summaryJson?.slides) ? selected.summaryJson.slides : [];
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12 space-y-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 space-y-6">
       {/* แถบหัวข้อ */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -157,16 +189,18 @@ export default function HistoryModal({ open, onClose }) {
         รองรับทั้งโหมดเดี่ยวและโหมดกลุ่ม · คลิปวิดีโอที่บันทึกจากเครื่องนี้ดูย้อนหลังได้ฟรีทันที (และสามารถอัปโหลดขึ้นคลาวด์ได้สูงสุด 3 คลิป/คน เพื่อดูข้ามเครื่อง)
       </div>
 
-      {error && <p className="text-xs text-accent">{error}</p>}
+      {error && (
+        <ErrorState
+          title="ไม่สามารถโหลดข้อมูลได้"
+          message={error}
+          onRetry={selected ? () => handleSelect(selected.id) : loadHistoryList}
+        />
+      )}
 
       {loading ? (
-        <div className="rounded-xl border border-line bg-white p-8 text-center text-sm text-muted">
-          กำลังโหลดประวัติ...
-        </div>
+        <SkeletonHistoryList rows={6} />
       ) : detailLoading ? (
-        <div className="rounded-xl border border-line bg-white p-8 text-center text-sm text-muted">
-          กำลังโหลดรายละเอียด...
-        </div>
+        <SkeletonDetailView />
       ) : selected ? (
         <div className="space-y-5">
           {/* แถบแท็บสลับหมวด ไม่ให้หน้ายาวลงล่าง */}
@@ -392,9 +426,11 @@ export default function HistoryModal({ open, onClose }) {
 
           {/* สรุปความเข้าใจจาก AI */}
           {selected.summaryJson?.listenerSummary && (
-            <div className="rounded-xl border border-line bg-white p-6 space-y-4">
-              <p className="text-base font-semibold text-ink">สรุปความเข้าใจจาก AI</p>
-              <p className="text-sm text-muted leading-relaxed">{selected.summaryJson.listenerSummary}</p>
+            <div className="rounded-2xl bg-white p-6 shadow-[0_1px_4px_rgba(27,27,26,0.06)] space-y-4">
+              <p className="text-lg sm:text-xl font-semibold text-stone-900">สรุปความเข้าใจจาก AI</p>
+              <p className="text-base leading-relaxed text-stone-900">
+                {selected.summaryJson.listenerSummary}
+              </p>
               <div className="grid gap-3 sm:grid-cols-2 pt-1">
                 {selected.summaryJson.topStrengths?.length > 0 && (
                   <div className="rounded-lg border border-ok/20 bg-ok/5 p-4">
@@ -522,65 +558,75 @@ export default function HistoryModal({ open, onClose }) {
                         className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-3.5 text-left transition hover:bg-paper/50 cursor-pointer"
                       >
                         <div className="flex flex-wrap items-center gap-2 min-w-0">
-                          <span className="text-sm font-semibold text-ink">
+                          <span className="text-lg font-semibold text-stone-900">
                             สไลด์ {slideIndex + 1}
                             {s.title ? ` · ${s.title}` : ''}
                           </span>
                           {hasMissed ? (
-                            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                            <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-sm font-medium text-accent">
                               มีประเด็นแนะนำ
                             </span>
                           ) : (
-                            <span className="rounded-full bg-ok/10 px-2 py-0.5 text-[11px] font-medium text-ok">
+                            <span className="rounded-full bg-ok/10 px-2.5 py-0.5 text-sm font-medium text-ok">
                               ครบถ้วน
                             </span>
                           )}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
-                          <span className="rounded-md bg-paper px-2 py-0.5 text-ink">{formatTime(s.duration || 0)}</span>
-                          <span className="rounded-md bg-paper px-2 py-0.5 text-muted">{s.wpm || 0} คำ/นาที</span>
-                          <span className={`rounded-md bg-paper px-2 py-0.5 ${(s.fillersCount ?? 0) > 0 ? 'text-accent font-medium' : 'text-muted'}`}>
+                        <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+                          <span className="rounded-md bg-paper px-2.5 py-1 text-stone-900">{formatTime(s.duration || 0)}</span>
+                          <span className="rounded-md bg-paper px-2.5 py-1 text-muted">{s.wpm || 0} คำ/นาที</span>
+                          <span className={`rounded-md bg-paper px-2.5 py-1 ${(s.fillersCount ?? 0) > 0 ? 'text-accent font-medium' : 'text-muted'}`}>
                             คำติดปาก {s.fillersCount ?? 0}
                           </span>
                           {s.eyeContactPct != null && (
-                            <span className={`rounded-md bg-paper px-2 py-0.5 ${s.eyeContactPct >= 70 ? 'text-ok' : 'text-slow'}`}>
+                            <span className={`rounded-md bg-paper px-2.5 py-1 ${s.eyeContactPct >= 70 ? 'text-ok' : 'text-slow'}`}>
                               สบตา {s.eyeContactPct}%
                             </span>
                           )}
-                          <span className="ml-1 font-sans text-xs text-faint">{isOpen ? 'ซ่อน' : 'ดูเพิ่ม'}</span>
+                          <span className="ml-1 font-sans text-sm text-muted">{isOpen ? 'ซ่อน' : 'ดูเพิ่ม'}</span>
                         </div>
                       </button>
 
                       {isOpen && (
-                        <div className="border-t border-line px-5 py-4 space-y-3 bg-paper/30">
-                          <div>
-                            <p className="mb-1 text-[11px] font-semibold text-muted">คำพูดของคุณ</p>
-                            <div className="rounded-lg border border-line bg-white p-3 text-sm leading-relaxed text-ink/90">
+                        <div className="border-t border-line/60 px-5 py-5 bg-paper/40">
+                          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                            <div className="rounded-xl border-l-4 border-ink/30 bg-white p-4 sm:p-5 shadow-2xs space-y-2">
+                              <p className="text-sm font-medium text-muted">คำพูดของคุณ</p>
                               {s.transcript ? (
-                                <p>"{s.transcript}"</p>
+                                <p className="text-base leading-relaxed text-stone-900">
+                                  &ldquo;{s.transcript}&rdquo;
+                                </p>
                               ) : (
-                                <p className="text-xs italic text-faint">ไม่มีข้อความถอดเสียงในสไลด์นี้</p>
+                                <p className="text-base italic text-faint">ไม่มีข้อความถอดเสียงในสไลด์นี้</p>
                               )}
                             </div>
-                          </div>
 
-                          {aiSlide && (aiSlide.missed?.length > 0 || aiSlide.polishedScript) && (
-                            <div className="rounded-lg border border-line bg-white p-3.5 text-xs space-y-2">
-                              {aiSlide.missed?.length > 0 && (
-                                <div>
-                                  <p className="font-semibold text-accent">ประเด็นที่ยังไม่ได้พูด</p>
-                                  <p className="mt-0.5 text-muted leading-relaxed">{aiSlide.missed.join(' · ')}</p>
-                                </div>
-                              )}
-                              {aiSlide.polishedScript && (
-                                <div>
-                                  <p className="font-semibold text-ink">ตัวอย่างประโยคที่กระชับขึ้น</p>
-                                  <p className="mt-0.5 text-ink/90 leading-relaxed">{aiSlide.polishedScript}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            {aiSlide && (aiSlide.missed?.length > 0 || aiSlide.polishedScript) ? (
+                              <div className="space-y-3">
+                                {aiSlide.missed?.length > 0 && (
+                                  <div className="rounded-xl bg-accent/5 p-4 sm:p-5 space-y-1.5">
+                                    <p className="text-sm font-medium text-accent">ประเด็นที่ยังไม่ได้พูด</p>
+                                    <p className="text-base leading-relaxed text-stone-900">
+                                      {aiSlide.missed.join(' · ')}
+                                    </p>
+                                  </div>
+                                )}
+                                {aiSlide.polishedScript && (
+                                  <div className="rounded-xl bg-ok/10 p-4 sm:p-5 space-y-1.5">
+                                    <p className="text-sm font-medium text-ok">ตัวอย่างประโยคที่กระชับขึ้น</p>
+                                    <p className="text-base leading-relaxed text-stone-900">
+                                      {aiSlide.polishedScript}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center rounded-xl bg-white/70 p-4 text-sm text-muted">
+                                ไม่มีประเด็นเพิ่มเติมจาก AI ในหน้านี้
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -598,64 +644,29 @@ export default function HistoryModal({ open, onClose }) {
 
           {/* ผลช่วงถาม-ตอบ (แบ่งหน้าละ 5) */}
           {detailTab === 'qa' && qaList.length > 0 && (
-            <div className="rounded-xl border border-line bg-white p-5 space-y-4">
+            <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-ink">ผลช่วงถาม-ตอบ ({qaList.length} ข้อ)</h3>
+                <h3 className="text-lg sm:text-xl font-semibold text-stone-900">
+                  ผลช่วงถาม-ตอบ ({qaList.length} ข้อ)
+                </h3>
               </div>
               <div className="space-y-4">
                 {qaList.slice((qaPage - 1) * 5, qaPage * 5).map((q, idx) => {
                   const realIdx = (qaPage - 1) * 5 + idx;
-                  const isGood = typeof q.directness === 'string' && q.directness.includes('ตรง');
                   return (
-                    <div key={idx} className="rounded-xl border border-line bg-paper/40 p-5 space-y-3.5 text-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="space-y-1.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-md bg-white border border-line px-2 py-0.5 font-mono text-[11px] font-semibold text-ink">
-                              ข้อ {(qaPage - 1) * 5 + idx + 1}
-                            </span>
-                            {q.isInterrupt && (
-                              <span className="rounded-md border border-accent/25 bg-accent/5 px-2 py-0.5 text-[11px] font-medium text-accent">
-                                ถามแทรกหน้า {(q.slideIndex ?? 0) + 1}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-base font-semibold leading-snug text-ink">{q.question}</p>
-                        </div>
-                        {q.directness && (
-                          <span
-                            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              isGood ? 'bg-ok/10 text-ok' : 'bg-accent/10 text-accent'
-                            }`}
-                          >
-                            {q.directness}
-                          </span>
-                        )}
-                      </div>
-
-                      {(q.answerTranscript || q.answer) && (
-                        <div className="rounded-lg border border-line bg-white p-3.5">
-                          <p className="text-[11px] font-semibold text-muted">คำตอบของคุณ</p>
-                          <p className="mt-1 text-sm leading-relaxed text-ink/90">
-                            "{q.answerTranscript || q.answer}"
-                          </p>
-                        </div>
-                      )}
-
-                      {q.feedback && (
-                        <div className="rounded-lg border border-line bg-white/70 p-3.5">
-                          <p className="text-[11px] font-semibold text-muted">ความเห็นกรรมการ</p>
-                          <p className="mt-1 text-xs leading-relaxed text-ink/85">{q.feedback}</p>
-                        </div>
-                      )}
-
-                      {q.betterAnswer && (
-                        <div className="rounded-lg border border-ok/25 bg-ok/5 p-3.5">
-                          <p className="text-[11px] font-semibold text-ok">แนวทางตอบที่แนะนำ</p>
-                          <p className="mt-1 text-xs leading-relaxed text-ink">{q.betterAnswer}</p>
-                        </div>
-                      )}
-                    </div>
+                    <QaResultCard
+                      key={realIdx}
+                      index={realIdx}
+                      question={q.question}
+                      isInterrupt={Boolean(q.isInterrupt)}
+                      slideIndex={q.slideIndex ?? 0}
+                      responderName={q.responderName || ''}
+                      answerText={q.answerTranscript || q.answer || ''}
+                      directness={q.directness || ''}
+                      feedback={q.feedback || ''}
+                      timelineNote={q.timelineNote || ''}
+                      betterAnswer={q.betterAnswer || ''}
+                    />
                   );
                 })}
               </div>
@@ -664,13 +675,64 @@ export default function HistoryModal({ open, onClose }) {
           )}
         </div>
       ) : sessions.length === 0 ? (
-        <div className="rounded-xl border border-line bg-white p-8 text-center text-sm text-muted">
-          ยังไม่มีประวัติการซ้อมที่บันทึกไว้
-        </div>
+        <EmptyState
+          title="ยังไม่มีประวัติการซ้อมที่บันทึกไว้"
+          description="เมื่อซ้อมเสร็จในโหมดเดี่ยวหรือโหมดกลุ่ม ประวัติ สถิติ และคลิปวิดีโอจะมาแสดงที่นี่โดยไม่เสีย Token ซ้ำ"
+          actionLabel="กลับไปเริ่มซ้อมเลย"
+          onAction={onClose}
+        />
       ) : (
         <div className="space-y-3">
-          <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
-            {sessions.slice((sessionPage - 1) * 6, sessionPage * 6).map((s) => (
+          {/* ช่องค้นหาและตัวกรองโหมด */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSessionPage(1);
+              }}
+              placeholder="ค้นหาชื่อสไลด์ หรือรหัสห้อง..."
+              className="w-full sm:w-64 rounded-lg border border-line bg-white px-3 py-1.5 text-xs text-ink placeholder:text-faint focus:border-ink focus:outline-none"
+            />
+            <div className="flex items-center gap-1.5">
+              {[
+                { key: 'all', label: `ทั้งหมด (${sessions.length})` },
+                { key: 'solo', label: 'เดี่ยว' },
+                { key: 'group', label: 'กลุ่ม' },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    setModeFilter(opt.key);
+                    setSessionPage(1);
+                  }}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition cursor-pointer ${
+                    modeFilter === opt.key
+                      ? 'bg-ink text-paper'
+                      : 'border border-line bg-white text-muted hover:text-ink'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filteredSessions.length === 0 ? (
+            <NoSearchResults
+              query={searchQuery}
+              onClear={() => {
+                setSearchQuery('');
+                setModeFilter('all');
+                setSessionPage(1);
+              }}
+            />
+          ) : (
+            <>
+              <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
+                {filteredSessions.slice((sessionPage - 1) * 6, sessionPage * 6).map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -710,14 +772,16 @@ export default function HistoryModal({ open, onClose }) {
                   ดูรายละเอียด
                 </span>
               </button>
-            ))}
-          </div>
-          <Pagination
-            page={sessionPage}
-            totalItems={sessions.length}
-            pageSize={6}
-            onPageChange={setSessionPage}
-          />
+                ))}
+              </div>
+              <Pagination
+                page={sessionPage}
+                totalItems={filteredSessions.length}
+                pageSize={6}
+                onPageChange={setSessionPage}
+              />
+            </>
+          )}
         </div>
       )}
     </div>

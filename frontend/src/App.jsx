@@ -9,6 +9,7 @@ import RemotePage from './components/RemotePage';
 import GroupLobbyStep from './components/GroupLobbyStep';
 import WalletModal from './components/WalletModal';
 import HistoryModal from './components/HistoryModal';
+import { OfflineBanner, SessionExpiredNotice } from './components/ui/StateViews';
 import { ConfirmDialogHost, resetConfirmSuppressions } from './components/ConfirmModal';
 import { analyze } from './lib/metrics';
 import { fetchLangmindPreset, fetchMe } from './lib/api';
@@ -127,6 +128,10 @@ export default function App() {
   const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [linePdfLoading, setLinePdfLoading] = useState(null);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [soloRoundsHistory, setSoloRoundsHistory] = useState(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -539,6 +544,42 @@ export default function App() {
     setUser(null);
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    const onExpired = () => {
+      try {
+        window.sessionStorage.setItem(
+          'icit_session_draft',
+          JSON.stringify({
+            savedAt: Date.now(),
+            step,
+            deckName: deck?.name || null,
+            rehearsalMode,
+            audience,
+            transcripts: Object.entries(results).map(([k, v]) => ({
+              slideIndex: Number(k),
+              transcript: v?.transcript || '',
+              duration: v?.duration || 0,
+            })),
+          }),
+        );
+      } catch {
+        // ignore
+      }
+      setSessionExpired(true);
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('session-expired', onExpired);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('session-expired', onExpired);
+    };
+  }, [step, deck?.name, rehearsalMode, audience, results]);
+
   if (remoteCode) {
     return <RemotePage code={remoteCode.trim().toUpperCase()} />;
   }
@@ -572,7 +613,36 @@ export default function App() {
         onSignOut={handleSignOut}
         onOpenWallet={() => setWalletOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
+        onGoHome={() => {
+          setHistoryOpen(false);
+          setSoloRoundsHistory([]);
+          setCompareAiCache({});
+          setResults({});
+          setInterruptResults({});
+          setQaResults([]);
+          setAiSummary(null);
+          setSavedSessionId(null);
+          setRehearsalIndex(0);
+          try {
+            window.sessionStorage.removeItem('icit_solo_rounds');
+          } catch {
+            // ignore
+          }
+          setStep('mode');
+        }}
       />
+      {!isOnline && (
+        <OfflineBanner onRetry={() => setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)} />
+      )}
+      {sessionExpired && (
+        <SessionExpiredNotice
+          onSignIn={() => {
+            setSessionExpired(false);
+            handleSignIn();
+          }}
+          onDismiss={() => setSessionExpired(false)}
+        />
+      )}
       <AppErrorBoundary>
         <main className="flex-1">
         {historyOpen && (
@@ -721,7 +791,7 @@ export default function App() {
             seriesId={soloSeriesId}
             onSavedSessionIdChange={setSavedSessionId}
             onUpdateQaResults={setQaResults}
-            onBack={() => setStep(allQaResults.length > 0 ? 'qa' : 'rehearsal')}
+            onBack={() => setStep('rehearsal')}
             onReRecordSlide={(i) => {
               setRehearsalIndex(i);
               setStep('rehearsal');

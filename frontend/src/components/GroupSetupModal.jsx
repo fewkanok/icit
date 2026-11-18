@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ToggleSwitch } from './ui/StateViews';
 
 const AUDIENCES = [
   { id: 'general', label: 'คนทั่วไป' },
@@ -52,8 +53,8 @@ export default function GroupSetupModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-2xl space-y-5">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 p-0 sm:p-4 backdrop-blur-xs">
+      <div className="animate-fade-up w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 shadow-2xl space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <span className="inline-block rounded-full border border-line bg-paper px-3 py-0.5 text-[11px] font-medium text-muted">
@@ -216,17 +217,11 @@ export default function GroupSetupModal({
                       มีคำถามแทรกสั้นๆ หลังพูดจบสไลด์บางหน้า (~20% เมื่อมี 3 หน้าขึ้นไป)
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setInterruptEnabled((v) => !v)}
-                    className={`shrink-0 rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
-                      interruptEnabled
-                        ? 'bg-ink text-paper'
-                        : 'border border-line bg-white text-muted'
-                    }`}
-                  >
-                    {interruptEnabled ? 'เปิด' : 'ปิด'}
-                  </button>
+                  <ToggleSwitch
+                    checked={interruptEnabled}
+                    onChange={(val) => setInterruptEnabled(val)}
+                    ariaLabel="สุ่มถามแทรกระหว่างซ้อมกลุ่ม"
+                  />
                 </div>
 
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/50 px-4 py-3">
@@ -238,17 +233,11 @@ export default function GroupSetupModal({
                       เปิดเมื่ออยากให้สมาชิกคนอื่นกดเปลี่ยนสไลด์แทนคนพูดได้
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setAllowAnySlideControl((v) => !v)}
-                    className={`shrink-0 rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
-                      allowAnySlideControl
-                        ? 'bg-ink text-paper'
-                        : 'border border-line bg-white text-muted'
-                    }`}
-                  >
-                    {allowAnySlideControl ? 'เปิด' : 'ปิด'}
-                  </button>
+                  <ToggleSwitch
+                    checked={allowAnySlideControl}
+                    onChange={(val) => setAllowAnySlideControl(val)}
+                    ariaLabel="ให้เพื่อนในห้องช่วยกดเลื่อนสไลด์ได้"
+                  />
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import FloatingCamera from './FloatingCamera';
+import { SkeletonQaCard } from './ui/Skeleton';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { useFaceLandmarker } from '../lib/useFaceLandmarker';
 import { useAudioRecorder } from '../lib/useAudioRecorder';
@@ -40,6 +41,8 @@ export default function QaStep({
 }) {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingStage, setLoadingStage] = useState('questions'); // 'questions' | 'audio'
+  const [loadingQuestionCount, setLoadingQuestionCount] = useState(0);
   const [error, setError] = useState(null);
 
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -148,13 +151,13 @@ export default function QaStep({
     return () => clearInterval(id);
   }, [qaPhase]);
 
-  // นับเวลารวมช่วงถาม-ตอบเทียบกับเวลาเป้าหมาย (เริ่มนับเฉพาะเมื่อโหลดคำถามเสร็จแล้ว)
+  // นับเวลารวมช่วงถาม-ตอบเทียบกับเวลาเป้าหมาย (นับเฉพาะช่วงที่ผู้พูดกำลังตอบจริง ไม่นับช่วงโหลดหรือฟังคำถาม)
   useEffect(() => {
     const qaTargetSec = (timeBudget?.qaMinutes || 0) * 60;
-    if (qaTargetSec <= 0 || loading || questions.length === 0) return;
+    if (qaTargetSec <= 0 || loading || questions.length === 0 || qaPhase !== 'answering') return;
     const id = setInterval(() => setQaTotalSec((s) => s + 1), 1000);
     return () => clearInterval(id);
-  }, [timeBudget?.qaMinutes, loading, questions.length]);
+  }, [timeBudget?.qaMinutes, loading, questions.length, qaPhase]);
 
   const qaTargetSec = (timeBudget?.qaMinutes || 0) * 60;
   const qaRemaining = qaTargetSec > 0 ? qaTargetSec - qaTotalSec : null;
@@ -164,6 +167,8 @@ export default function QaStep({
 
   async function loadQuestions() {
     setLoading(true);
+    setLoadingStage('questions');
+    setLoadingQuestionCount(0);
     setError(null);
     try {
       if (!generatePromiseRef.current) {
@@ -189,7 +194,9 @@ export default function QaStep({
         generatePromiseRef.current = null;
         setError('AI ไม่สามารถสร้างคำถามจากสไลด์นี้ได้');
       } else {
-        // เตรียมเสียงอ่านคำถาม Edge-TTS ครบทุกข้อก่อนเปิดหน้าถาม-ตอบ
+        // เตรียมเสียงอ่านคำถาม Edge-TTS ครบทุกข้อก่อนแสดงโจทย์และเริ่มจับเวลา
+        setLoadingQuestionCount(list.length);
+        setLoadingStage('audio');
         await preloadAllQuestionsSpeech(list);
         setQuestions(list);
       }
@@ -455,8 +462,19 @@ export default function QaStep({
       </div>
 
       {loading && (
-        <div className="mt-8 rounded-xl border border-line bg-white p-8 text-center">
-          <p className="text-sm text-muted">กำลังเตรียมคำถามจากสไลด์ของคุณ...</p>
+        <div className="mt-8">
+          <SkeletonQaCard
+            message={
+              loadingStage === 'audio'
+                ? 'กำลังสร้างเสียงอ่านคำถาม...'
+                : 'กำลังสร้างคำถามจากสไลด์ของคุณ...'
+            }
+            subMessage={
+              loadingStage === 'audio'
+                ? `ได้คำถามครบ ${loadingQuestionCount || ''} ข้อแล้ว กำลังเตรียมเสียงกรรมการให้พร้อมก่อนแสดงโจทย์และเริ่มจับเวลา`
+                : 'AI กำลังวิเคราะห์สไลด์และคำพูดของคุณเพื่อออกแบบคำถาม รอสักครู่'
+            }
+          />
         </div>
       )}
 
@@ -525,14 +543,26 @@ export default function QaStep({
           </div>
 
           {/* ช่องตอบคำถาม */}
-          <div className="rounded-xl border border-line bg-white p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-ink">คำตอบของคุณ</span>
+          <div className="rounded-2xl border border-line bg-white p-6 space-y-4 shadow-[0_1px_4px_rgba(27,27,26,0.05)]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <span className="text-sm font-semibold text-ink">คำตอบของคุณ</span>
+                {qaPhase === 'asking' ? (
+                  <span className="rounded-full bg-paper px-2.5 py-0.5 text-xs font-medium text-muted">
+                    กรรมการกำลังถาม...
+                  </span>
+                ) : speech.listening ? (
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
+                    <span className="size-1.5 rounded-full bg-accent animate-pulse" />
+                    กำลังฟัง &amp; บันทึกเสียง
+                  </span>
+                ) : null}
+              </div>
               {speech.supported && (
                 <button
                   type="button"
                   onClick={toggleMic}
-                  disabled={evaluating}
+                  disabled={evaluating || qaPhase === 'asking'}
                   className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition disabled:opacity-40 cursor-pointer ${
                     speech.listening
                       ? 'bg-accent text-white'
@@ -540,7 +570,7 @@ export default function QaStep({
                   }`}
                 >
                   {qaPhase === 'asking'
-                    ? 'กรรมการกำลังถาม...'
+                    ? 'รอฟังคำถาม...'
                     : speech.listening
                       ? 'หยุดอัดเสียง'
                       : 'กดเพื่อตอบด้วยเสียง'}
@@ -549,24 +579,34 @@ export default function QaStep({
             </div>
 
             {(speech.listening || elapsed > 0) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-paper px-3.5 py-2 text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono tabular-nums text-ink">{formatTime(elapsed)}</span>
-                  <span className="text-faint">•</span>
-                  <span className={`font-mono tabular-nums ${livePace ? PACE_TEXT[livePace.tone] : 'text-muted'}`}>
-                    {liveWpm || '–'} คำ/นาที
+              <div className="space-y-2.5 rounded-xl bg-paper/70 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-3xl font-semibold tracking-tight tabular-nums text-ink">
+                    {formatTime(elapsed)}
                   </span>
-                  {livePace && (
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PACE_PILL[livePace.tone]}`}>
-                      {livePace.label}
+                  {vision.cameraActive && (
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        vision.isLooking ? 'bg-ok/10 text-ok' : 'bg-slow/10 text-slow'
+                      }`}
+                    >
+                      {vision.isLooking ? 'มองกล้องอยู่' : 'สายตาหลุดจากกล้อง'}
                     </span>
                   )}
                 </div>
-                {vision.cameraActive && (
-                  <span className="text-[11px] text-muted">
-                    {vision.isLooking ? 'มองกล้องอยู่' : 'สายตาหลุดจากกล้อง'}
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 font-medium ${
+                      livePace ? PACE_PILL[livePace.tone] : 'bg-white text-muted border border-line'
+                    }`}
+                  >
+                    {elapsed < PACE_WARMUP_SEC
+                      ? 'กำลังจับจังหวะ...'
+                      : livePace
+                        ? `${livePace.label} · ${liveWpm} คำ/นาที`
+                        : 'กำลังฟัง...'}
                   </span>
-                )}
+                </div>
               </div>
             )}
 
@@ -576,7 +616,7 @@ export default function QaStep({
               onChange={(e) => setAnswerText(e.target.value)}
               disabled={evaluating}
               placeholder="กดปุ่มด้านบนเพื่อพูดตอบ หรือพิมพ์คำตอบที่นี่..."
-              className="w-full rounded-lg border border-line bg-paper p-3.5 text-sm leading-relaxed focus:border-ink focus:outline-none disabled:opacity-60"
+              className="w-full rounded-xl border border-line bg-paper p-3.5 text-base leading-relaxed focus:border-ink focus:outline-none disabled:opacity-60"
             />
 
             {error && <p className="text-xs text-accent">{error}</p>}

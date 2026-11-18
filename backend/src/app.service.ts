@@ -7,6 +7,7 @@ const EDGE_TTS_CACHE_MAX = 120;
 export class AppService {
   private readonly edgeTtsCache = new Map<string, string>();
   private readonly edgeTtsPending = new Map<string, Promise<{ audioDataUrl: string }>>();
+  private edgeTtsQueue: Promise<void> = Promise.resolve();
 
   getHello(): string {
     return 'Hello World!';
@@ -40,6 +41,21 @@ export class AppService {
     }
   }
 
+  private enqueueEdgeTts<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.edgeTtsQueue.then(async () => {
+      try {
+        return await fn();
+      } finally {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    });
+    this.edgeTtsQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   async synthesizeEdgeSpeech(rawText: string): Promise<{ audioDataUrl: string }> {
     const clean = String(rawText || '').trim().slice(0, 600);
     if (!clean) {
@@ -56,13 +72,33 @@ export class AppService {
       return pending;
     }
 
-    const task = (async () => {
+    const task = this.enqueueEdgeTts(async () => {
+      const cachedAfterQueue = this.edgeTtsCache.get(clean);
+      if (cachedAfterQueue) {
+        return { audioDataUrl: cachedAfterQueue };
+      }
+
+      const backoffMs = [400, 900];
       let audioDataUrl = '';
-      try {
-        audioDataUrl = await this.runEdgeTtsOnce(clean);
-      } catch {
-        await new Promise((r) => setTimeout(r, 250));
-        audioDataUrl = await this.runEdgeTtsOnce(clean);
+      let lastErr: unknown = null;
+
+      for (let attempt = 0; attempt <= backoffMs.length; attempt++) {
+        try {
+          audioDataUrl = await this.runEdgeTtsOnce(clean);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < backoffMs.length) {
+            await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+          }
+        }
+      }
+
+      if (!audioDataUrl) {
+        const msg = lastErr instanceof Error ? lastErr.message : String(lastErr || 'unknown error');
+        console.warn(`[EdgeTTS] Fallback to browser speech: ${msg}`);
+        return { audioDataUrl: '' };
       }
 
       if (this.edgeTtsCache.size >= EDGE_TTS_CACHE_MAX) {
@@ -71,7 +107,7 @@ export class AppService {
       }
       this.edgeTtsCache.set(clean, audioDataUrl);
       return { audioDataUrl };
-    })().finally(() => {
+    }).finally(() => {
       this.edgeTtsPending.delete(clean);
     });
 

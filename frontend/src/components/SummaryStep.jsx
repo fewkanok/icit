@@ -14,6 +14,12 @@ import VideoLayoutModal, { DEFAULT_VIDEO_LAYOUT } from './VideoLayoutModal';
 import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
 import RoundComparisonCard from './RoundComparisonCard';
+import QaResultCard from './QaResultCard';
+import MiniAudioPlayer from './ui/MiniAudioPlayer';
+import GeminiCooldownButton from './ui/GeminiCooldownButton';
+import { SkeletonSummaryOverview, SkeletonVideoMerge } from './ui/Skeleton';
+import { ErrorState, SlowOperationBar } from './ui/StateViews';
+import { ClockIcon, GaugeIcon, MessageSquareIcon } from './ui/Icons';
 
 function getSlideText(slide) {
   if (!slide) return '';
@@ -76,7 +82,7 @@ export default function SummaryStep({
       avgWpm,
       fillersCount: totalFillers,
       deadAirCount: totalDeadAir,
-      totalDurationSec: Math.round(totalTime),
+      totalDurationSec: Math.floor(totalTime),
       eyeContactPct: avgEyeContact,
       qaAnsweredCount: qaAnswered.length,
       qaDirectCount: qaDirect.length,
@@ -704,11 +710,51 @@ export default function SummaryStep({
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
       {/* หัวข้อสรุปผล */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">สรุปการซ้อม</h1>
-        <p className="mt-1 text-sm text-muted">{deck.name}</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-stone-900">สรุปการซ้อม</h1>
+          <p className="mt-1 text-sm text-muted">{deck.name}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await askConfirm({
+                key: 'leave-summary',
+                title: 'กลับไปหน้าซ้อม?',
+                message: 'หากกลับไปอัดใหม่บางหน้า คลิปเสียงและวิดีโอรวมจะเปลี่ยนไป ต้องการกลับไปหน้าซ้อมหรือไม่?',
+                confirmText: 'กลับไปหน้าซ้อม',
+              });
+              if (ok) onBack();
+            }}
+            className="min-h-[40px] rounded-xl border border-line bg-white px-4 py-2 text-xs font-medium text-ink transition hover:border-faint active:scale-[0.99] cursor-pointer"
+          >
+            กลับไปหน้าซ้อม
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await askConfirm({
+                key: 'leave-summary-restart',
+                allowDontShowAgain: false,
+                danger: true,
+                title: 'ออกจากหน้าสรุปผลและซ้อมใหม่?',
+                message:
+                  hasAnyAudio || hasAnyVideo
+                    ? 'ไฟล์เสียงและวิดีโอในรอบนี้ไม่ได้ถูกบันทึกในประวัติ หากยังไม่ได้ดาวน์โหลดไฟล์จะหาย ต้องการซ้อมใหม่ทั้งหมดหรือไม่?'
+                    : 'ต้องการเริ่มซ้อมใหม่ทั้งหมดตั้งแต่ต้นหรือไม่?',
+                confirmText: 'ซ้อมใหม่ทั้งหมด',
+              });
+              if (ok) onRestart(currentRoundSnapshot);
+            }}
+            className="min-h-[40px] rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-paper transition hover:bg-ink/90 active:scale-[0.99] cursor-pointer"
+          >
+            ซ้อมใหม่ทั้งหมด
+          </button>
+        </div>
       </div>
 
       {/* แถบแท็บสลับหมวด ไม่ให้หน้าสรุปผลยาวลงล่าง */}
@@ -767,18 +813,14 @@ export default function SummaryStep({
 
       {/* การ์ดไฟล์รวม (Default สำหรับดาวน์โหลดและแชร์) */}
       {(hasAnyAudio || hasAnyVideo) && (
-        <div className="mt-6 rounded-xl border border-line bg-white p-5 shadow-xs space-y-4">
+        <div className="mt-6 rounded-2xl bg-white p-5 shadow-[0_1px_4px_rgba(27,27,26,0.06)] space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-medium text-ink">ไฟล์สรุปรวมทุกสไลด์ (พร้อมแชร์และดาวน์โหลด)</h2>
+              <h2 className="text-base font-semibold text-ink">ไฟล์สรุปรวมทุกสไลด์ (พร้อมแชร์และดาวน์โหลด)</h2>
               <p className="mt-0.5 text-xs text-muted">
-                รวมคลิปจากการซ้อมทั้งหมดไว้ในไฟล์เดียว หรือเลื่อนลงด้านล่างเพื่อดูและโหลดแยกทีละสไลด์ได้
+                ไฟล์ชั่วคราวบนหน้านี้ (บันทึกเข้าเครื่องอัตโนมัติใน History เมื่อล็อกอิน — แนะนำให้ดาวน์โหลดหรืออัปโหลดขึ้นคลาวด์ก่อนออก)
               </p>
             </div>
-          </div>
-
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900">
-            หมายเหตุ: ไฟล์เสียงและวิดีโอจะเก็บไว้ในหน้านี้ชั่วคราวเท่านั้น ไม่ได้บันทึกลงในประวัติย้อนหลัง หากปิดหน้านี้หรือเริ่มซ้อมใหม่ไฟล์จะหาย กรุณาดาวน์โหลดเก็บไว้ก่อนออก
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -883,31 +925,23 @@ export default function SummaryStep({
           )}
 
           {videoMerging && (
-            <div className="rounded-xl border border-accent/25 bg-accent/5 p-4 space-y-2">
-              <div className="flex items-center justify-between text-xs font-medium text-accent">
-                <span>
-                  {videoMergeProgress?.stage === 'encoding'
-                    ? 'กำลังสร้างวิดีโอใหม่ตามเลย์เอาต์ที่เลือก...'
-                    : 'กำลังเตรียมไฟล์วิดีโอและสไลด์...'}
-                </span>
-                <span className="font-mono tabular-nums">
-                  {videoMergeProgress?.stage === 'encoding'
-                    ? `${videoMergeProgress.pct || 0}%`
-                    : `${videoMergeProgress?.current || 1}/${videoMergeProgress?.total || 1}`}
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
-                <div
-                  className="h-full bg-accent transition-all duration-300"
-                  style={{
-                    width:
-                      videoMergeProgress?.stage === 'encoding'
-                        ? `${Math.max(4, videoMergeProgress.pct || 0)}%`
-                        : '10%',
-                  }}
-                />
-              </div>
-            </div>
+            <SkeletonVideoMerge
+              label={
+                videoMergeProgress?.stage === 'encoding'
+                  ? 'กำลังสร้างวิดีโอใหม่ตามเลย์เอาต์ที่เลือก...'
+                  : 'กำลังเตรียมไฟล์วิดีโอและสไลด์...'
+              }
+              progressText={
+                videoMergeProgress?.stage === 'encoding'
+                  ? `${videoMergeProgress.pct || 0}%`
+                  : `${videoMergeProgress?.current || 1}/${videoMergeProgress?.total || 1}`
+              }
+              percent={
+                videoMergeProgress?.stage === 'encoding'
+                  ? videoMergeProgress.pct || 0
+                  : 10
+              }
+            />
           )}
 
           {showMergedVideo && !videoMerging && (mergedVideo?.url || videoItems.length === 1) && (
@@ -940,18 +974,63 @@ export default function SummaryStep({
         );
       })()}
 
-      {/* สถิติรวม 3 ช่อง */}
-      <div className="mt-8 grid grid-cols-3 divide-x divide-line rounded-xl border border-line bg-white">
-        {[
-          ['เวลารวม', formatTime(totalTime)],
-          ['คำ/นาที เฉลี่ย', avgWpm || '–'],
-          ['คำติดปากรวม', totalFillers > 0 ? totalFillers : 'ไม่พบ'],
-        ].map(([label, value]) => (
-          <div key={label} className="px-5 py-4">
-            <p className="text-xs text-muted">{label}</p>
-            <p className="mt-1 font-mono text-2xl tabular-nums tracking-tight">{value}</p>
+      {/* Hero Metric Cards (3 ช่อง) */}
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl bg-white p-5 shadow-[0_1px_4px_rgba(27,27,26,0.06)]">
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span>เวลารวม</span>
+            <ClockIcon className="size-4 text-muted" />
           </div>
-        ))}
+          <p className="mt-2 font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">
+            {formatTime(totalTime)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-white p-5 shadow-[0_1px_4px_rgba(27,27,26,0.06)]">
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span>ความเร็วเฉลี่ย (คำ/นาที)</span>
+            <GaugeIcon className="size-4 text-muted" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2.5">
+            <p className="font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">
+              {avgWpm || '–'}
+            </p>
+            {avgWpm > 0 && (() => {
+              const p = pace(avgWpm);
+              if (!p) return null;
+              const badgeCls =
+                p.tone === 'good'
+                  ? 'bg-ok/10 text-ok'
+                  : p.tone === 'slow'
+                    ? 'bg-slow/10 text-slow'
+                    : 'bg-accent/10 text-accent';
+              return (
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeCls}`}>
+                  {p.label}
+                </span>
+              );
+            })()}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white p-5 shadow-[0_1px_4px_rgba(27,27,26,0.06)]">
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span>คำติดปากรวม</span>
+            <MessageSquareIcon className="size-4 text-muted" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2.5">
+            <p className="font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">
+              {totalFillers > 0 ? totalFillers : '0'}
+            </p>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                totalFillers === 0 ? 'bg-ok/10 text-ok' : 'bg-paper text-muted'
+              }`}
+            >
+              {totalFillers === 0 ? 'พูดลื่นไหลดีมาก' : 'ครั้ง'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* สรุปคะแนนสายตาและบุคลิกภาพ (Google MediaPipe Vision) ถ้ามีการเปิดใช้กล้อง */}
@@ -1017,32 +1096,32 @@ export default function SummaryStep({
               ให้ AI ประเมินความตรงตามสไลด์ ความเข้าใจง่าย และแนะนำประโยคที่กระชับขึ้น
             </p>
           </div>
-          <button
-            type="button"
+          <GeminiCooldownButton
+            loading={aiLoading}
+            loadingLabel="กำลังวิเคราะห์..."
             onClick={runAiAnalysis}
             className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-accent/90 cursor-pointer"
           >
             วิเคราะห์สรุปผลด้วย AI (-2 Tokens)
-          </button>
+          </GeminiCooldownButton>
         </div>
       )}
 
       {aiLoading && (
-        <div className="mt-4 rounded-xl border border-line bg-white px-5 py-5 text-sm text-muted">
-          กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟัง...
+        <div className="mt-4 space-y-3">
+          <SlowOperationBar visible label="กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟัง..." />
+          <SkeletonSummaryOverview />
         </div>
       )}
 
       {!aiLoading && aiError && (
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4">
-          <p className="text-xs text-accent">{aiError}</p>
-          <button
-            type="button"
-            onClick={runAiAnalysis}
-            className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink hover:border-faint cursor-pointer"
-          >
-            ลองวิเคราะห์อีกครั้ง (-2 Tokens)
-          </button>
+        <div className="mt-4">
+          <ErrorState
+            title="วิเคราะห์สรุปผลไม่สำเร็จ"
+            message={aiError}
+            onRetry={runAiAnalysis}
+            retryLabel="ลองวิเคราะห์อีกครั้ง (-2 Tokens)"
+          />
         </div>
       )}
 
@@ -1065,8 +1144,8 @@ export default function SummaryStep({
           </div>
 
           {aiSummary.listenerSummary && (
-            <div className="rounded-lg bg-paper p-3.5 text-sm leading-relaxed text-ink">
-              <p className="text-xs font-medium text-muted mb-1">สิ่งที่คนฟังจับใจความได้</p>
+            <div className="rounded-xl bg-paper/75 p-4 sm:p-5 text-base leading-relaxed text-stone-900">
+              <p className="text-sm font-medium text-muted mb-1.5">สิ่งที่คนฟังจับใจความได้</p>
               <p>{aiSummary.listenerSummary}</p>
             </div>
           )}
@@ -1307,53 +1386,54 @@ export default function SummaryStep({
                             />
                           </div>
                         )}
-                        <div>
+                        <div className={aiSlide && (aiSlide.missed?.length > 0 || aiSlide.polishedScript) ? 'grid grid-cols-1 gap-4 lg:grid-cols-2' : ''}>
                         {isEditingThis ? (
                           <div className="space-y-2">
                             <textarea
                               value={editText}
                               onChange={(e) => setEditText(e.target.value)}
                               rows={3}
-                              className="w-full rounded-lg border border-ink/30 bg-white p-3 text-sm focus:border-ink focus:outline-none"
+                              className="w-full rounded-xl border border-ink/30 bg-white p-3.5 text-base focus:border-ink focus:outline-none"
                               placeholder="พิมพ์แก้ไขข้อความที่ถอดเสียง..."
                             />
                             <div className="flex justify-end gap-2 text-xs">
                               <button
                                 onClick={() => setEditingIndex(null)}
-                                className="rounded-md border border-line bg-white px-3 py-1.5 transition hover:bg-paper cursor-pointer"
+                                className="rounded-lg border border-line bg-white px-3 py-1.5 transition hover:bg-paper cursor-pointer"
                               >
                                 ยกเลิก
                               </button>
                               <button
                                 onClick={() => handleSaveEdit(i)}
-                                className="rounded-md bg-ink px-3 py-1.5 font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
+                                className="rounded-lg bg-ink px-3 py-1.5 font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
                               >
                                 บันทึกข้อความ
                               </button>
                             </div>
                           </div>
                         ) : (
-                          <div className="rounded-lg border border-line bg-white p-3.5 text-sm leading-relaxed text-ink/90">
+                          <div className="rounded-xl border-l-4 border-ink/30 bg-white p-4 shadow-2xs space-y-1.5">
+                            <p className="text-sm font-medium text-muted">คำพูดของคุณ</p>
                             {r?.transcript ? (
-                              <p>"{r.transcript}"</p>
+                              <p className="text-base leading-relaxed text-stone-900">&ldquo;{r.transcript}&rdquo;</p>
                             ) : (
-                              <p className="text-faint italic">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
+                              <p className="text-base italic text-faint">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
                             )}
                           </div>
                         )}
 
                         {aiSlide && (aiSlide.missed?.length > 0 || aiSlide.polishedScript) && (
-                          <div className="mt-2.5 rounded-lg border border-line bg-white p-3.5 text-xs space-y-2">
+                          <div className="space-y-2.5">
                             {aiSlide.missed?.length > 0 && (
-                              <div>
-                                <p className="font-semibold text-accent">ประเด็นที่ยังไม่ได้พูด</p>
-                                <p className="mt-0.5 text-muted leading-relaxed">{aiSlide.missed.join(' · ')}</p>
+                              <div className="rounded-xl bg-accent/5 p-4 space-y-1">
+                                <p className="text-sm font-medium text-accent">ประเด็นที่ยังไม่ได้พูด</p>
+                                <p className="text-base leading-relaxed text-stone-900">{aiSlide.missed.join(' · ')}</p>
                               </div>
                             )}
                             {aiSlide.polishedScript && (
-                              <div>
-                                <p className="font-semibold text-ink">ตัวอย่างประโยคที่กระชับขึ้น</p>
-                                <p className="mt-0.5 text-ink/90 leading-relaxed">{aiSlide.polishedScript}</p>
+                              <div className="rounded-xl bg-ok/10 p-4 space-y-1">
+                                <p className="text-sm font-medium text-ok">ตัวอย่างประโยคที่กระชับขึ้น</p>
+                                <p className="text-base leading-relaxed text-stone-900">{aiSlide.polishedScript}</p>
                               </div>
                             )}
                           </div>
@@ -1361,108 +1441,60 @@ export default function SummaryStep({
                         </div>
                       </div>
 
-                      {/* แถบปุ่ม Action ด้านล่างของสไลด์นี้ */}
+                      {/* แถบปุ่ม Action ด้านล่างของสไลด์นี้ (หน้าตาเดียวกับแท็บถาม-ตอบ) */}
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3 text-xs">
-                {/* ฝั่งซ้าย: ปุ่มฟังเสียงคลิปหน้านี้ และ Audio Player */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {r?.audioUrl ? (
-                    <>
-                      <button
-                        onClick={() => playSlide(i)}
-                        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition cursor-pointer ${
-                          isPlayingThis
-                            ? 'bg-accent text-white shadow-xs'
-                            : 'border border-line bg-white hover:border-faint text-ink'
-                        }`}
-                      >
-                        {isPlayingThis ? (
-                          <>
-                            <span className="size-2 rounded-[1px] bg-white animate-pulse" />
-                            <span>หยุดฟัง</span>
-                          </>
-                        ) : (
-                          <>
-                            <svg viewBox="0 0 16 16" className="size-3.5" fill="currentColor">
-                              <path d="M4 3.5v9l8-4.5-8-4.5z" />
-                            </svg>
-                            <span>ฟังคลิปหน้านี้</span>
-                          </>
-                        )}
-                      </button>
-                      <audio controls src={r.audioUrl} className="h-7 w-48 sm:w-56" />
-                    </>
-                  ) : (
-                    <span className="text-faint italic text-[11px]">
-                      {isContinuousClip
-                        ? 'ใช้เสียงจากคลิปซ้อมใหญ่ต่อเนื่อง'
-                        : 'ไม่มีไฟล์เสียง'}
-                    </span>
-                  )}
-                  {(clipResult?.videoUrl || clipResult?.audioUrl) && (
-                    <button
-                      type="button"
-                      onClick={() => setOpenVideoIndex(openVideoIndex === i ? null : i)}
-                      className="rounded-md bg-ink px-3 py-1.5 font-medium text-white hover:opacity-90 transition cursor-pointer"
-                    >
-                      {openVideoIndex === i ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
-                    </button>
-                  )}
-                </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {r?.audioUrl ? (
+                            <MiniAudioPlayer
+                              src={r.audioUrl}
+                              downloadName={`slide-${i + 1}-audio.webm`}
+                            />
+                          ) : (
+                            <span className="text-faint italic text-xs">
+                              {isContinuousClip
+                                ? 'ใช้เสียงจากคลิปซ้อมใหญ่ต่อเนื่อง'
+                                : 'ไม่มีไฟล์เสียง'}
+                            </span>
+                          )}
+                          {(clipResult?.videoUrl || clipResult?.audioUrl) && (
+                            <button
+                              type="button"
+                              onClick={() => setOpenVideoIndex(openVideoIndex === i ? null : i)}
+                              className="min-h-[34px] rounded-full bg-ink px-3.5 py-1 text-xs font-medium text-white transition hover:opacity-90 cursor-pointer"
+                            >
+                              {openVideoIndex === i ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
+                            </button>
+                          )}
+                          {r?.videoUrl && (
+                            <a
+                              href={r.videoUrl}
+                              download={`slide-${i + 1}.${r.videoExt || 'webm'}`}
+                              className="inline-flex min-h-[34px] items-center rounded-full bg-paper px-3 py-1 text-xs font-medium text-ink transition hover:bg-line/70"
+                            >
+                              โหลดคลิปดิบ
+                            </a>
+                          )}
+                        </div>
 
-                {/* ฝั่งขวา: เมนูเพิ่มเติม (ซ่อนปุ่มรองไม่ให้รกสายตา) */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMoreActionsSlideIdx(moreActionsSlideIdx === i ? null : i)}
-                    className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-muted hover:text-ink hover:border-faint transition cursor-pointer"
-                  >
-                    {moreActionsSlideIdx === i ? 'ซ่อนตัวเลือก' : 'เพิ่มเติม'}
-                  </button>
-
-                  {moreActionsSlideIdx === i && (
-                    <>
-                      {r?.audioUrl && (
-                        <a
-                          href={r.audioUrl}
-                          download={`slide-${i + 1}-audio.webm`}
-                          className="rounded-md border border-line bg-paper px-2.5 py-1.5 font-medium text-ink hover:border-faint"
-                        >
-                          โหลดเสียง
-                        </a>
-                      )}
-                      {r?.videoUrl && (
-                        <a
-                          href={r.videoUrl}
-                          download={`slide-${i + 1}.${r.videoExt || 'webm'}`}
-                          className="rounded-md border border-line bg-paper px-2.5 py-1.5 font-medium text-ink hover:border-faint"
-                        >
-                          โหลดคลิปดิบ
-                        </a>
-                      )}
-                      {r && !isEditingThis && (
-                        <button
-                          onClick={() => handleStartEdit(i, r.transcript)}
-                          className="flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-ink hover:border-faint hover:bg-paper transition cursor-pointer"
-                        >
-                          <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M11.5 2.5a1.414 1.414 0 0 1 2 2L4.5 13.5l-3 1 1-3L11.5 2.5z" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <span>แก้ข้อความ</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() => onReRecordSlide(i)}
-                        className="flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-ink hover:border-faint hover:bg-paper transition cursor-pointer"
-                      >
-                        <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M2.5 8a5.5 5.5 0 0 1 9.5-3.88L14 6m-1.5 2a5.5 5.5 0 0 1-9.5 3.88L1 10" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span>อัดใหม่หน้านี้</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {r && !isEditingThis && (
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(i, r.transcript)}
+                              className="inline-flex min-h-[34px] items-center gap-1 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink transition hover:border-faint hover:bg-paper cursor-pointer"
+                            >
+                              แก้ข้อความ
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => onReRecordSlide(i)}
+                            className="inline-flex min-h-[34px] items-center gap-1 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink transition hover:border-faint hover:bg-paper cursor-pointer"
+                          >
+                            อัดใหม่หน้านี้
+                          </button>
+                        </div>
+                      </div>
 
               {(clipResult?.videoUrl || clipResult?.audioUrl) && openVideoIndex === i && (() => {
                 const clipDuration = isContinuousClip
@@ -1500,11 +1532,11 @@ export default function SummaryStep({
 
       {/* ผลช่วงถาม-ตอบ (แบ่งหน้าละ 5) */}
       {activeTab === 'qa' && qaResults.length > 0 && (
-        <div className="rounded-xl border border-line bg-white p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-5 shadow-[0_1px_4px_rgba(27,27,26,0.06)]">
             <div>
-              <h3 className="text-sm font-medium text-ink">ผลช่วงถาม-ตอบ</h3>
-              <p className="mt-0.5 text-xs text-muted">
+              <h3 className="text-lg sm:text-xl font-semibold text-stone-900">ผลช่วงถาม-ตอบ</h3>
+              <p className="mt-0.5 text-sm text-muted">
                 คำถามที่ฝึกตอบ {qaResults.length} ข้อ
               </p>
             </div>
@@ -1513,7 +1545,7 @@ export default function SummaryStep({
                 type="button"
                 onClick={handleEvaluateAllQa}
                 disabled={qaEvaluating}
-                className="rounded-lg bg-ink px-3.5 py-2 text-xs font-medium text-paper transition hover:bg-ink/85 disabled:opacity-50 cursor-pointer"
+                className="min-h-[44px] rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
               >
                 {qaEvaluating
                   ? 'กำลังตรวจคำตอบ Q&A...'
@@ -1521,115 +1553,61 @@ export default function SummaryStep({
               </button>
             )}
           </div>
-          {qaEvalError && <p className="text-xs text-accent">{qaEvalError}</p>}
+          {qaEvalError && <p className="text-sm text-accent">{qaEvalError}</p>}
 
           <div className="space-y-4">
             {qaResults.slice((qaPage - 1) * 5, qaPage * 5).map((q, idx) => {
               const realIdx = (qaPage - 1) * 5 + idx;
-              const isGood = typeof q.directness === 'string' && q.directness.includes('ตรง');
               return (
-                <div key={realIdx} className="rounded-xl border border-line bg-paper/40 p-5 space-y-3.5 text-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="space-y-1.5">
+                <QaResultCard
+                  key={realIdx}
+                  index={realIdx}
+                  question={q.question}
+                  isInterrupt={Boolean(q.isInterrupt)}
+                  slideIndex={q.slideIndex ?? 0}
+                  answerText={q.answerTranscript || q.answer || ''}
+                  directness={q.directness || ''}
+                  feedback={q.feedback || ''}
+                  timelineNote={q.timelineNote || ''}
+                  betterAnswer={q.betterAnswer || ''}
+                  audioUrl={q.audioUrl || ''}
+                  audioDownloadName={q.audioUrl ? `qa-${realIdx + 1}-audio.webm` : ''}
+                  actionSlot={
+                    q.videoUrl ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md bg-white border border-line px-2 py-0.5 font-mono text-[11px] font-semibold text-ink">
-                          ข้อ {realIdx + 1}
-                        </span>
-                        {q.isInterrupt && (
-                          <span className="rounded-md border border-accent/25 bg-accent/5 px-2 py-0.5 text-[11px] font-medium text-accent">
-                            ถามแทรกหน้า {(q.slideIndex ?? 0) + 1}
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setOpenQaVideoIndex(openQaVideoIndex === realIdx ? null : realIdx)}
+                          className="min-h-[34px] rounded-full bg-ink px-3.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+                        >
+                          {openQaVideoIndex === realIdx ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
+                        </button>
+                        <a
+                          href={q.videoUrl}
+                          download={`qa-${realIdx + 1}.${q.videoExt || 'webm'}`}
+                          className="rounded-full bg-paper px-3 py-1 text-xs font-medium text-ink hover:bg-line/70"
+                        >
+                          โหลดคลิปดิบ
+                        </a>
                       </div>
-                      <p className="text-base font-semibold leading-snug text-ink">{q.question}</p>
-                    </div>
-                    {q.directness && (
-                      <span
-                        className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          isGood ? 'bg-ok/10 text-ok' : 'bg-accent/10 text-accent'
-                        }`}
-                      >
-                        {q.directness}
-                      </span>
-                    )}
-                  </div>
-
-                  {(q.answerTranscript || q.answer) && (
-                    <div className="rounded-lg border border-line bg-white p-3.5">
-                      <p className="text-[11px] font-semibold text-muted">คำตอบของคุณ</p>
-                      <p className="mt-1 text-sm leading-relaxed text-ink/90">
-                        "{q.answerTranscript || q.answer}"
-                      </p>
-                    </div>
-                  )}
-
-                  {(q.feedback || q.timelineNote) && (
-                    <div className="rounded-lg border border-line bg-white/70 p-3.5 space-y-1.5">
-                      <p className="text-[11px] font-semibold text-muted">ความเห็นกรรมการ</p>
-                      {q.feedback && <p className="text-xs leading-relaxed text-ink/85">{q.feedback}</p>}
-                      {q.timelineNote && (
-                        <p className="text-xs text-muted">
-                          <span className="font-medium text-ink">จังหวะระหว่างตอบ: </span>
-                          {q.timelineNote}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {q.betterAnswer && (
-                    <div className="rounded-lg border border-ok/25 bg-ok/5 p-3.5">
-                      <p className="text-[11px] font-semibold text-ok">แนวทางตอบที่แนะนำ</p>
-                      <p className="mt-1 text-xs leading-relaxed text-ink">{q.betterAnswer}</p>
-                    </div>
-                  )}
-
-                  {(q.audioUrl || q.videoUrl) && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3 text-xs">
-                      {q.audioUrl && (
-                        <>
-                          <audio controls src={q.audioUrl} className="h-7 w-48 sm:w-56" />
-                          <a
-                            href={q.audioUrl}
-                            download={`qa-${idx + 1}-audio.webm`}
-                            className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink hover:border-faint"
-                          >
-                            โหลดเสียง
-                          </a>
-                        </>
-                      )}
-                      {q.videoUrl && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setOpenQaVideoIndex(openQaVideoIndex === idx ? null : idx)}
-                            className="rounded-md bg-ink px-3 py-1.5 font-medium text-white hover:opacity-90 cursor-pointer"
-                          >
-                            {openQaVideoIndex === idx ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
-                          </button>
-                          <a
-                            href={q.videoUrl}
-                            download={`qa-${idx + 1}.${q.videoExt || 'webm'}`}
-                            className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-ink hover:border-faint"
-                          >
-                            โหลดคลิปดิบ
-                          </a>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {(q.videoUrl || q.audioUrl) && openQaVideoIndex === idx && (
-                    <TimelineReplayPlayer
-                      videoUrl={q.videoUrl}
-                      audioUrl={q.audioUrl}
-                      duration={q.duration}
-                      events={q.timelineEvents || []}
-                      slides={deck.slides}
-                      slideIndex={q.slideIndex ?? 0}
-                      qaQuestion={q.question}
-                    />
-                  )}
-                </div>
+                    ) : null
+                  }
+                  replaySlot={
+                    (q.videoUrl || q.audioUrl) && openQaVideoIndex === realIdx ? (
+                      <div className="pt-2">
+                        <TimelineReplayPlayer
+                          videoUrl={q.videoUrl}
+                          audioUrl={q.audioUrl}
+                          duration={q.duration}
+                          events={q.timelineEvents || []}
+                          slides={deck.slides}
+                          slideIndex={q.slideIndex ?? 0}
+                          qaQuestion={q.question}
+                        />
+                      </div>
+                    ) : null
+                  }
+                />
               );
             })}
           </div>
@@ -1669,43 +1647,6 @@ export default function SummaryStep({
             </button>
           )}
         </div>
-      </div>
-
-      {/* ปุ่มด้านล่าง */}
-      <div className="mt-6 flex gap-2">
-        <button
-          onClick={async () => {
-            const ok = await askConfirm({
-              key: 'leave-summary',
-              title: 'กลับไปหน้าซ้อม?',
-              message: 'หากกลับไปอัดใหม่บางหน้า คลิปเสียงและวิดีโอรวมจะเปลี่ยนไป ต้องการกลับไปหน้าซ้อมหรือไม่?',
-              confirmText: 'กลับไปหน้าซ้อม',
-            });
-            if (ok) onBack();
-          }}
-          className="rounded-lg border border-line px-5 py-2.5 text-sm transition hover:border-faint cursor-pointer"
-        >
-          กลับไปหน้าซ้อม
-        </button>
-        <button
-          onClick={async () => {
-            const ok = await askConfirm({
-              key: 'leave-summary-restart',
-              allowDontShowAgain: false,
-              danger: true,
-              title: 'ออกจากหน้าสรุปผลและซ้อมใหม่?',
-              message:
-                hasAnyAudio || hasAnyVideo
-                  ? 'ไฟล์เสียงและวิดีโอในรอบนี้ไม่ได้ถูกบันทึกในประวัติ หากยังไม่ได้ดาวน์โหลดไฟล์จะหาย ต้องการซ้อมใหม่ทั้งหมดหรือไม่?'
-                  : 'ต้องการเริ่มซ้อมใหม่ทั้งหมดตั้งแต่ต้นหรือไม่?',
-              confirmText: 'ซ้อมใหม่ทั้งหมด',
-            });
-            if (ok) onRestart(currentRoundSnapshot);
-          }}
-          className="rounded-lg bg-ink px-5 py-2.5 text-sm font-medium text-paper transition hover:bg-ink/85 cursor-pointer"
-        >
-          ซ้อมใหม่ทั้งหมด
-        </button>
       </div>
 
       <VideoLayoutModal

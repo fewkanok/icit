@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import SlideViewer from './SlideViewer';
 import FloatingCamera from './FloatingCamera';
+import { ToggleSwitch } from './ui/StateViews';
 import InterruptModal from './InterruptModal';
 import { askConfirm } from './ConfirmModal';
 import { createSocket } from '../lib/socket';
@@ -668,8 +669,8 @@ export default function RehearsalStep({
             </button>
 
             {showOptionsMenu && (
-              <div className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-line bg-white p-3 shadow-lg space-y-2">
-                <p className="px-1 text-[11px] font-semibold text-muted">ตัวเลือกห้องซ้อม</p>
+              <div className="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-line bg-white p-3.5 shadow-lg space-y-2.5">
+                <p className="px-1 text-xs font-semibold text-muted">ตัวเลือกห้องซ้อม</p>
                 {stageMode ? (
                   <button
                     type="button"
@@ -681,7 +682,7 @@ export default function RehearsalStep({
                     className="flex w-full items-center justify-between rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-left text-xs font-medium text-accent disabled:opacity-40 cursor-pointer"
                   >
                     <span>{remoteConnected ? 'รีโมตเชื่อมแล้ว (ดู QR)' : 'รอสแกน QR รีโมต'}</span>
-                    <span>เปิด QR</span>
+                    <span>ดู QR →</span>
                   </button>
                 ) : (
                   <button
@@ -695,32 +696,31 @@ export default function RehearsalStep({
                     className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs font-medium text-ink hover:border-faint disabled:opacity-40 cursor-pointer"
                   >
                     <span>โหมดเวที (QR รีโมตมือถือ)</span>
-                    <span className="text-muted">เปิด</span>
+                    <span className="text-muted">เปิดใช้งาน →</span>
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setHideLiveCoach((v) => !v)}
-                  className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs text-ink hover:border-faint cursor-pointer"
-                >
+                <div className="flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-paper px-3 py-2 text-xs text-ink">
                   <span>ซ่อนตัวช่วยระหว่างพูด</span>
-                  <span className={hideLiveCoach ? 'font-semibold text-ink' : 'text-muted'}>
-                    {hideLiveCoach ? 'เปิด' : 'ปิด'}
-                  </span>
-                </button>
+                  <ToggleSwitch
+                    checked={hideLiveCoach}
+                    onChange={(val) => setHideLiveCoach(val)}
+                    labelOn="เปิด"
+                    labelOff="ปิด"
+                    ariaLabel="ซ่อนตัวช่วยระหว่างพูด"
+                  />
+                </div>
 
-                <button
-                  type="button"
-                  onClick={onInterruptToggle}
-                  disabled={live}
-                  className="flex w-full items-center justify-between rounded-lg border border-line bg-paper px-3 py-2 text-left text-xs text-ink hover:border-faint disabled:opacity-40 cursor-pointer"
-                >
+                <div className={`flex w-full items-center justify-between gap-2 rounded-lg border border-line bg-paper px-3 py-2 text-xs text-ink ${live ? 'opacity-45 pointer-events-none' : ''}`}>
                   <span>สุ่มถามแทรก (-1 Token/ข้อ)</span>
-                  <span className={interruptEnabled ? 'font-semibold text-ink' : 'text-muted'}>
-                    {interruptEnabled ? 'เปิด' : 'ปิด'}
-                  </span>
-                </button>
+                  <ToggleSwitch
+                    checked={interruptEnabled}
+                    onChange={() => !live && onInterruptToggle?.()}
+                    labelOn="เปิด"
+                    labelOff="ปิด"
+                    ariaLabel="สุ่มถามแทรก"
+                  />
+                </div>
               </div>
             )}
           </div>

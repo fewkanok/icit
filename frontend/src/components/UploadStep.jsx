@@ -3,6 +3,8 @@ import SlideViewer from './SlideViewer';
 import SlideSelector from './SlideSelector';
 import RoomSetupModal from './RoomSetupModal';
 import DeviceTestCard from './DeviceTestCard';
+import { EmptyState, ErrorState, SlowOperationBar } from './ui/StateViews';
+import { SkeletonSlideGrid } from './ui/Skeleton';
 import { filesToSlides, SAMPLE_DECK } from '../lib/slides';
 
 const AUDIENCE_LABEL = {
@@ -139,32 +141,32 @@ export default function UploadStep({
 
         {loading && (
           <div className="mt-4">
-            <div className="flex justify-between text-xs text-muted">
-              <span>
-                {externalProgress
+            <SlowOperationBar
+              visible
+              label={
+                externalProgress
                   ? 'กำลังดึงไฟล์สไลด์ PDF จาก LINE อัตโนมัติ...'
-                  : 'กำลังแปลงสไลด์'}
-              </span>
-              {activeProgress.total > 0 && (
-                <span className="font-mono tabular-nums">
-                  {activeProgress.done}/{activeProgress.total}
-                </span>
-              )}
-            </div>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">
-              <div
-                className="h-full bg-ink transition-all"
-                style={{
-                  width: activeProgress.total
-                    ? `${(activeProgress.done / activeProgress.total) * 100}%`
-                    : '25%',
-                }}
-              />
-            </div>
+                  : 'กำลังแปลงสไลด์...'
+              }
+              progress={
+                activeProgress.total > 0
+                  ? Math.round((activeProgress.done / activeProgress.total) * 100)
+                  : null
+              }
+            />
           </div>
         )}
 
-        {error && <p className="mt-4 text-sm text-accent">{error}</p>}
+        {error && (
+          <div className="mt-4">
+            <ErrorState
+              title="อ่านไฟล์ไม่สำเร็จ"
+              message={error}
+              onRetry={() => inputRef.current?.click()}
+              retryLabel="เลือกไฟล์ใหม่"
+            />
+          </div>
+        )}
 
         {deck && !loading && (
           <div className="mt-4 flex items-center justify-between rounded-lg border border-line bg-white px-4 py-3">
@@ -251,7 +253,25 @@ export default function UploadStep({
 
       {/* ขวา: พรีวิวสไลด์ */}
       <section>
-        <SlideViewer slides={deck?.slides} index={index} onIndexChange={setIndex} />
+        {loading && !deck ? (
+          <div className="space-y-4">
+            <div className="aspect-video w-full rounded-xl border border-line bg-white p-6">
+              <SkeletonSlideGrid />
+            </div>
+          </div>
+        ) : !deck ? (
+          <EmptyState
+            title="ยังไม่มีสไลด์ในขั้นตอนนี้"
+            description="อัปโหลดไฟล์ PDF หรือรูปภาพทางด้านซ้าย หรือทดลองใช้สไลด์แนะนำตัว 2 หน้าเพื่อเริ่มซ้อมได้ทันที"
+            actionLabel="ทดลองใช้สไลด์แนะนำตัว (2 หน้า)"
+            onAction={() => {
+              onDeckChange(SAMPLE_DECK);
+              setIndex(0);
+            }}
+          />
+        ) : (
+          <SlideViewer slides={deck?.slides} index={index} onIndexChange={setIndex} />
+        )}
         {deck && !loading && onSelectedIndicesChange && (
           <SlideSelector
             slides={deck.slides}

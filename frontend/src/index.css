@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Noto Sans Thai", "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
   --color-paper: #f7f6f2;
@@ -18,10 +18,61 @@ html,
 body {
   background: var(--color-paper);
   color: var(--color-ink);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+@keyframes ic-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: ic-fade-up 0.18s ease-out both;
 }
 
 ::selection {
   background: #1b1b1a;
   color: #f7f6f2;
+}
+
+@keyframes ic-shimmer-ltr {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: #eceae3;
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.65) 50%,
+    transparent 100%
+  );
+  animation: ic-shimmer-ltr 1.4s infinite ease-in-out;
 }

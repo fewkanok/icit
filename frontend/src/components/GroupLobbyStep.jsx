@@ -9,6 +9,7 @@ import GroupSummaryView from './GroupSummaryView';
 import GroupAssignModal, { getMemberColor } from './GroupAssignModal';
 import GroupSetupModal from './GroupSetupModal';
 import SlideSelector from './SlideSelector';
+import { FieldError, ModeBadge } from './ui/StateViews';
 
 async function compressSlideForSocket(slide) {
   const src = slide?.src;
@@ -67,6 +68,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
   const fileInputRef = useRef(null);
   const stopTestRef = useRef(null);
   const didAutoFillNameRef = useRef(Boolean(defaultName));
+  const savedAssignmentsByIdRef = useRef(new Map());
 
   useEffect(() => {
     const socket = createSocket();
@@ -248,21 +250,26 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
     const filtered = nextIndices.map((i) => source.slides[i]).filter(Boolean);
     if (filtered.length === 0) return;
 
-    // เก็บ mapping คิวคนพูดเดิมตาม id ของสไลด์ไว้ เพื่อไม่ให้คนพูดสลับหน้าเมื่อติ๊กซ่อนบางหน้า
+    // เก็บ mapping คิวคนพูดเดิมตาม id ของสไลด์ไว้ เพื่อไม่ให้คนพูดสลับหน้าหรือหายเมื่อติ๊กซ่อน/เลือกใหม่
     const oldSlides = room.slides || [];
     const oldAssignments = room.assignments || {};
-    const ownerBySlideId = new Map();
     oldSlides.forEach((s, idx) => {
+      const key = s?.id != null ? `id:${s.id}` : `idx:${idx}`;
       if (oldAssignments[idx]) {
-        const key = s?.id != null ? `id:${s.id}` : `idx:${idx}`;
-        ownerBySlideId.set(key, oldAssignments[idx]);
+        savedAssignmentsByIdRef.current.set(key, oldAssignments[idx]);
+      } else {
+        savedAssignmentsByIdRef.current.delete(key);
       }
     });
     const remappedAssignments = {};
+    let hasAnyAssignment = false;
     filtered.forEach((s, newIdx) => {
       const key = s?.id != null ? `id:${s.id}` : `idx:${newIdx}`;
-      const ownerId = ownerBySlideId.get(key);
-      if (ownerId) remappedAssignments[newIdx] = ownerId;
+      const ownerId = savedAssignmentsByIdRef.current.get(key);
+      if (ownerId) {
+        remappedAssignments[newIdx] = ownerId;
+        hasAnyAssignment = true;
+      }
     });
 
     socket.emit(
@@ -271,7 +278,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
       (res) => {
         if (!res?.ok) {
           setError(res?.message || 'อัปเดตสไลด์ที่เลือกไม่สำเร็จ');
-        } else if (Object.keys(oldAssignments).length > 0) {
+        } else if (hasAnyAssignment || Object.keys(oldAssignments).length > 0) {
           socket.emit('group:set_assignments', { assignments: remappedAssignments });
         }
       },
@@ -437,6 +444,9 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
                   placeholder="เช่น G4K9P2"
                   className="mt-1.5 w-full rounded-xl border border-line bg-paper/40 px-3.5 py-2.5 font-mono text-base uppercase tracking-widest text-ink focus:border-ink focus:bg-white focus:outline-none"
                 />
+                {roomCodeInput.length > 0 && roomCodeInput.trim().length < 6 && (
+                  <FieldError message="กรุณากรอกรหัสห้องให้ครบ 6 หลัก" />
+                )}
               </div>
             )}
 
@@ -521,8 +531,11 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-accent">ห้องซ้อมกลุ่ม (Lobby)</p>
-          <h1 className="mt-0.5 text-2xl font-semibold text-ink">รอสมาชิกและจัดคิวสไลด์</h1>
+          <div className="flex items-center gap-2">
+            <ModeBadge mode="group" roomCode={room.code} />
+            <span className="text-xs text-muted">ห้อง Lobby</span>
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold text-ink">รอสมาชิกและจัดคิวสไลด์</h1>
         </div>
         <button
           type="button"

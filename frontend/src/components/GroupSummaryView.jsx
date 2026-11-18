@@ -15,6 +15,11 @@ import SummaryCharts from './SummaryCharts';
 import TimelineReplayPlayer from './TimelineReplayPlayer';
 import VideoLayoutModal from './VideoLayoutModal';
 import RoundComparisonCard from './RoundComparisonCard';
+import QaResultCard from './QaResultCard';
+import MiniAudioPlayer from './ui/MiniAudioPlayer';
+import GeminiCooldownButton from './ui/GeminiCooldownButton';
+import { SkeletonVideoMerge } from './ui/Skeleton';
+import { ErrorState, SlowOperationBar } from './ui/StateViews';
 
 export default function GroupSummaryView({
   socket,
@@ -363,7 +368,7 @@ export default function GroupSummaryView({
       avgWpm,
       fillersCount: totalFillers,
       deadAirCount: totalDeadAir,
-      totalDurationSec: Math.round(totalDur),
+      totalDurationSec: Math.floor(totalDur),
       eyeContactPct: avgEye,
       qaAnsweredCount: qaAnswered.length,
       qaDirectCount: qaDirect.length,
@@ -583,7 +588,7 @@ export default function GroupSummaryView({
   const avgPace = pace(totals.wpm);
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10 space-y-6">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 space-y-6">
       {/* หัวข้อ */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -772,12 +777,8 @@ export default function GroupSummaryView({
                 : `ไฟล์สรุปรวมเฉพาะของ ${selectedMember}`}
             </h3>
             <p className="mt-0.5 text-xs text-muted">
-              รวมคลิปจากการซ้อมทั้งหมดไว้ในไฟล์เดียว หรือเลื่อนลงด้านล่างเพื่อดูและโหลดแยกทีละสไลด์ได้
+              รวมคลิปจากการซ้อมทั้งหมดไว้ในไฟล์เดียว (ไฟล์ชั่วคราวจะถูกลบเมื่อทุกคนออกจากห้อง — ดาวน์โหลดหรือบันทึกลงประวัติไว้ก่อนออก)
             </p>
-          </div>
-
-          <div className="rounded-lg border border-amber-300 bg-amber-50/80 px-4 py-2.5 text-xs leading-relaxed text-amber-900">
-            หมายเหตุ: คลิปและเสียงจะเก็บไว้ชั่วคราวใน Database และจะถูกลบอัตโนมัติเมื่อสมาชิกทุกคนออกจากห้องนี้ กรุณาดาวน์โหลดเก็บไว้ก่อนออก
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -872,17 +873,11 @@ export default function GroupSummaryView({
           )}
 
           {merging && (
-            <div className="space-y-1.5">
-              <div className="h-2 overflow-hidden rounded-full bg-paper border border-line">
-                <div
-                  className="h-full bg-accent transition-all"
-                  style={{ width: `${Math.max(4, mergeProgress)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-muted">
-                กำลังประมวลผลรวมวิดีโอ ({mergeProgress}%)...
-              </p>
-            </div>
+            <SkeletonVideoMerge
+              label="กำลังประมวลผลรวมวิดีโอและสไลด์..."
+              progressText={`${mergeProgress}%`}
+              percent={mergeProgress}
+            />
           )}
 
           {mergedVideoUrl && !merging && (
@@ -907,33 +902,28 @@ export default function GroupSummaryView({
               ให้ AI ประเมินความตรงตามสไลด์ ความเข้าใจง่าย และแนะนำประโยคที่กระชับขึ้น (ทุกคนในห้องเห็นผลพร้อมกัน)
             </p>
           </div>
-          <button
-            type="button"
+          <GeminiCooldownButton
+            loading={aiLoading}
+            loadingLabel="กำลังวิเคราะห์ทั้งกลุ่ม..."
             onClick={runGroupAiAnalysis}
             className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-accent/90 cursor-pointer"
           >
             วิเคราะห์สรุปผลด้วย AI (-2 Tokens)
-          </button>
+          </GeminiCooldownButton>
         </div>
       )}
 
       {aiLoading && (
-        <div className="rounded-xl border border-line bg-white px-5 py-5 text-sm text-muted">
-          กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟังทั้งกลุ่ม...
-        </div>
+        <SlowOperationBar visible label="กำลังวิเคราะห์เนื้อหาสไลด์และความเข้าใจของผู้ฟังทั้งกลุ่ม..." />
       )}
 
       {!aiLoading && aiError && (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-white px-5 py-4">
-          <p className="text-xs text-accent">{aiError}</p>
-          <button
-            type="button"
-            onClick={runGroupAiAnalysis}
-            className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink hover:border-faint cursor-pointer"
-          >
-            ลองวิเคราะห์อีกครั้ง (-2 Tokens)
-          </button>
-        </div>
+        <ErrorState
+          title="วิเคราะห์สรุปผลกลุ่มไม่สำเร็จ"
+          message={aiError}
+          onRetry={runGroupAiAnalysis}
+          retryLabel="ลองวิเคราะห์อีกครั้ง (-2 Tokens)"
+        />
       )}
 
       {!aiLoading && aiSummary && (
@@ -953,8 +943,8 @@ export default function GroupSummaryView({
           </div>
 
           {aiSummary.listenerSummary && (
-            <div className="rounded-lg bg-paper p-3.5 text-sm leading-relaxed text-ink">
-              <p className="mb-1 text-xs font-medium text-muted">สิ่งที่คนฟังจับใจความได้</p>
+            <div className="rounded-xl bg-paper/75 p-4 sm:p-5 text-base leading-relaxed text-stone-900">
+              <p className="mb-1.5 text-sm font-medium text-muted">สิ่งที่คนฟังจับใจความได้</p>
               <p>{aiSummary.listenerSummary}</p>
             </div>
           )}
@@ -1153,35 +1143,38 @@ export default function GroupSummaryView({
                           </div>
                         </div>
                       ) : (
-                        <div className="space-y-2.5">
-                          <div className="rounded-lg border border-line bg-white p-3.5 text-sm leading-relaxed text-ink/90">
-                            {a.transcript ? (
-                              <p>&quot;{a.transcript}&quot;</p>
-                            ) : (
-                              <p className="text-faint italic">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
-                            )}
-                          </div>
+                        <div className="space-y-3">
                           {(() => {
                             const aiSlide = aiSummary?.slides?.find((x) => x.index === idx);
-                            if (!aiSlide || (!aiSlide.missed?.length && !aiSlide.polishedScript)) {
-                              return null;
-                            }
+                            const hasAi = Boolean(aiSlide && (aiSlide.missed?.length > 0 || aiSlide.polishedScript));
                             return (
-                              <div className="rounded-lg border border-line bg-white p-3.5 text-xs space-y-2">
-                                {aiSlide.missed?.length > 0 && (
-                                  <div>
-                                    <p className="font-semibold text-accent">ประเด็นที่ยังไม่ได้พูด</p>
-                                    <p className="mt-0.5 text-muted leading-relaxed">
-                                      {aiSlide.missed.join(' · ')}
-                                    </p>
-                                  </div>
-                                )}
-                                {aiSlide.polishedScript && (
-                                  <div>
-                                    <p className="font-semibold text-ink">ตัวอย่างประโยคที่กระชับขึ้น</p>
-                                    <p className="mt-0.5 text-ink/90 leading-relaxed">
-                                      {aiSlide.polishedScript}
-                                    </p>
+                              <div className={hasAi ? 'grid grid-cols-1 gap-4 lg:grid-cols-2' : ''}>
+                                <div className="rounded-xl border-l-4 border-ink/30 bg-white p-4 shadow-2xs space-y-1.5">
+                                  <p className="text-sm font-medium text-muted">คำพูดของคุณ</p>
+                                  {a.transcript ? (
+                                    <p className="text-base leading-relaxed text-stone-900">&ldquo;{a.transcript}&rdquo;</p>
+                                  ) : (
+                                    <p className="text-base italic text-faint">ยังไม่มีข้อความเสียงในสไลด์นี้</p>
+                                  )}
+                                </div>
+                                {hasAi && (
+                                  <div className="space-y-2.5">
+                                    {aiSlide.missed?.length > 0 && (
+                                      <div className="rounded-xl bg-accent/5 p-4 space-y-1">
+                                        <p className="text-sm font-medium text-accent">ประเด็นที่ยังไม่ได้พูด</p>
+                                        <p className="text-base leading-relaxed text-stone-900">
+                                          {aiSlide.missed.join(' · ')}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {aiSlide.polishedScript && (
+                                      <div className="rounded-xl bg-ok/10 p-4 space-y-1">
+                                        <p className="text-sm font-medium text-ok">ตัวอย่างประโยคที่กระชับขึ้น</p>
+                                        <p className="text-base leading-relaxed text-stone-900">
+                                          {aiSlide.polishedScript}
+                                        </p>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -1215,110 +1208,65 @@ export default function GroupSummaryView({
                     </div>
 
                     {clip?.mediaUrl && (
-                      <div className="space-y-2 border-t border-line/60 pt-3 text-xs">
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line/60 pt-3 text-xs">
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const el = audioRefs.current[idx];
-                              if (!el) return;
-                              if (el.paused) void el.play().catch(() => {});
-                              else el.pause();
-                            }}
-                            className="rounded-md border border-line bg-white px-3 py-1.5 font-medium text-ink hover:border-faint cursor-pointer"
-                          >
-                            ▶ ฟังคลิปหน้านี้
-                          </button>
-                          <audio
-                            ref={(el) => {
-                              if (el) audioRefs.current[idx] = el;
-                            }}
-                            controls
-                            src={clip.mediaUrl}
-                            className="h-8 max-w-60"
-                          />
+                          <MiniAudioPlayer src={clip.mediaUrl} />
                           <button
                             type="button"
                             onClick={() =>
                               setOpenReplayIdx(openReplayIdx === idx ? null : idx)
                             }
-                            className="rounded-md bg-ink px-3 py-1.5 font-medium text-white hover:opacity-90 transition cursor-pointer"
+                            className="min-h-[34px] rounded-full bg-ink px-3.5 py-1 text-xs font-medium text-white transition hover:opacity-90 cursor-pointer"
                           >
                             {openReplayIdx === idx ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
                           </button>
+                          <a
+                            href={clip.mediaUrl}
+                            download={`slide-${idx + 1}-${clip.memberName || 'clip'}.webm`}
+                            className="inline-flex min-h-[34px] items-center rounded-full bg-paper px-3 py-1 text-xs font-medium text-ink transition hover:bg-line/70"
+                          >
+                            โหลดคลิปดิบ
+                          </a>
+                        </div>
 
-                          {!showMoreMap[idx] && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={downloadingAudioIdx === idx}
+                            onClick={async () => {
+                              setDownloadingAudioIdx(idx);
+                              try {
+                                const res = await mergeAudioTracks([clip.mediaUrl]);
+                                if (res?.url) {
+                                  const link = document.createElement('a');
+                                  link.href = res.url;
+                                  link.download = `slide-${idx + 1}-audio.wav`;
+                                  link.click();
+                                  setTimeout(() => URL.revokeObjectURL(res.url), 5000);
+                                }
+                              } catch (err) {
+                                setError(err?.message || 'แยกไฟล์เสียงไม่สำเร็จ');
+                              } finally {
+                                setDownloadingAudioIdx(null);
+                              }
+                            }}
+                            className="inline-flex min-h-[34px] items-center rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink transition hover:border-faint hover:bg-paper disabled:opacity-50 cursor-pointer"
+                          >
+                            {downloadingAudioIdx === idx ? 'กำลังแปลงเสียง...' : 'โหลดเสียง (.wav)'}
+                          </button>
+                          {editingIdx !== idx && (
                             <button
                               type="button"
-                              onClick={() =>
-                                setShowMoreMap((prev) => ({ ...prev, [idx]: true }))
-                              }
-                              className="ml-auto rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-muted hover:text-ink hover:border-faint transition cursor-pointer"
+                              onClick={() => {
+                                setEditingIdx(idx);
+                                setEditText(a.transcript || '');
+                              }}
+                              className="inline-flex min-h-[34px] items-center rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink transition hover:border-faint hover:bg-paper cursor-pointer"
                             >
-                              เพิ่มเติม
+                              แก้ข้อความ
                             </button>
                           )}
                         </div>
-
-                        {showMoreMap[idx] && (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setShowMoreMap((prev) => ({ ...prev, [idx]: false }))
-                              }
-                              className="rounded-md border border-line bg-white px-2.5 py-1.5 font-medium text-muted hover:text-ink hover:border-faint transition cursor-pointer"
-                            >
-                              ซ่อนตัวเลือก
-                            </button>
-                            <button
-                              type="button"
-                              disabled={downloadingAudioIdx === idx}
-                              onClick={async () => {
-                                setDownloadingAudioIdx(idx);
-                                try {
-                                  const res = await mergeAudioTracks([clip.mediaUrl]);
-                                  if (res?.url) {
-                                    const link = document.createElement('a');
-                                    link.href = res.url;
-                                    link.download = `slide-${idx + 1}-audio.wav`;
-                                    link.click();
-                                    setTimeout(() => URL.revokeObjectURL(res.url), 5000);
-                                  }
-                                } catch (err) {
-                                  setError(err?.message || 'แยกไฟล์เสียงไม่สำเร็จ');
-                                } finally {
-                                  setDownloadingAudioIdx(null);
-                                }
-                              }}
-                              className="rounded-md border border-line bg-paper px-2.5 py-1.5 font-medium text-ink hover:border-faint disabled:opacity-50 cursor-pointer"
-                            >
-                              {downloadingAudioIdx === idx ? 'กำลังแปลงเสียง...' : 'โหลดเสียง'}
-                            </button>
-                            <a
-                              href={clip.mediaUrl}
-                              download={`slide-${idx + 1}-${clip.memberName || 'clip'}.webm`}
-                              className="rounded-md border border-line bg-paper px-2.5 py-1.5 font-medium text-ink hover:border-faint"
-                            >
-                              โหลดคลิปดิบ
-                            </a>
-                            {editingIdx !== idx && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingIdx(idx);
-                                  setEditText(a.transcript || '');
-                                }}
-                                className="flex items-center gap-1 rounded-md border border-line bg-white px-2.5 py-1.5 text-ink hover:border-faint hover:bg-paper transition cursor-pointer"
-                              >
-                                <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                  <path d="M11.5 2.5a1.414 1.414 0 0 1 2 2L4.5 13.5l-3 1 1-3L11.5 2.5z" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                <span>แก้ข้อความ</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -1353,8 +1301,10 @@ export default function GroupSummaryView({
       {activeTab === 'qa' && (
         <div className="space-y-4">
           <div>
-            <h3 className="text-sm font-semibold text-ink">ช่วงถาม-ตอบ ({qaQuestions.length} ข้อ)</h3>
-            <p className="text-[11px] text-muted">
+            <h3 className="text-lg sm:text-xl font-semibold text-stone-900">
+              ช่วงถาม-ตอบ ({qaQuestions.length} ข้อ)
+            </h3>
+            <p className="mt-0.5 text-sm text-muted">
               ดูคำตอบของสมาชิกที่อาสาตอบแต่ละข้อ และกดให้ AI ช่วยตรวจความตรงประเด็นได้
             </p>
           </div>
@@ -1365,66 +1315,43 @@ export default function GroupSummaryView({
             const ev = qaEvaluations[qIdx] || null;
             const busyEval = Boolean(qaEvalLoading[qIdx]);
             return (
-              <div key={q.id || qIdx} className="rounded-xl border border-line bg-white p-5 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded bg-paper px-2 py-0.5 font-mono text-[11px] font-semibold text-ink">
-                        คำถามที่ {qIdx + 1}
-                      </span>
-                      {ans?.responderName ? (
-                        <span className="rounded-full border border-line bg-paper px-2.5 py-0.5 text-[11px] font-medium text-ink">
-                          ผู้ตอบ: {ans.responderName}
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-paper px-2.5 py-0.5 text-[11px] text-faint">
-                          ยังไม่มีผู้ตอบ
-                        </span>
-                      )}
-                      {ev?.directness && (
-                        <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent">
-                          {ev.directness}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm font-semibold text-ink">{q.question}</p>
-                  </div>
-
-                  {!ev && (
-                    <button
-                      type="button"
-                      disabled={busyEval}
-                      onClick={() => void handleEvaluateGroupQa(qIdx)}
-                      className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
-                    >
-                      {busyEval ? 'กำลังตรวจ...' : 'ให้ AI ตรวจคำตอบ (-1 Token)'}
-                    </button>
-                  )}
-                </div>
-
-                <div className="rounded-lg border border-line bg-paper/50 p-3.5 text-sm leading-relaxed text-ink">
-                  {ans?.transcript ? (
-                    <p>&quot;{ans.transcript}&quot;</p>
-                  ) : (
-                    <p className="text-faint italic">ยังไม่มีข้อความคำตอบในข้อนี้</p>
-                  )}
-                </div>
-
-                {qaClip?.mediaUrl && (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <audio controls src={qaClip.mediaUrl} className="h-8 max-w-64" />
+              <QaResultCard
+                key={q.id || qIdx}
+                index={qIdx}
+                question={q.question}
+                responderName={ans?.responderName || ''}
+                answerText={ans?.transcript || ''}
+                directness={ev?.directness || ''}
+                feedback={ev?.feedback || ''}
+                timelineNote={ev?.timelineNote || ''}
+                betterAnswer={ev?.betterAnswer || ''}
+                audioUrl={qaClip?.mediaUrl || ''}
+                actionSlot={
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!ev && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setOpenQaReplayIdx(openQaReplayIdx === qIdx ? null : qIdx)
-                        }
-                        className="rounded-md bg-ink px-3 py-1.5 font-medium text-white hover:opacity-90 cursor-pointer"
+                        disabled={busyEval}
+                        onClick={() => void handleEvaluateGroupQa(qIdx)}
+                        className="min-h-[36px] rounded-lg bg-accent px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
+                      >
+                        {busyEval ? 'กำลังตรวจ...' : 'ให้ AI ตรวจคำตอบ (-1 Token)'}
+                      </button>
+                    )}
+                    {qaClip?.mediaUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setOpenQaReplayIdx(openQaReplayIdx === qIdx ? null : qIdx)}
+                        className="min-h-[34px] rounded-full bg-ink px-3.5 py-1 text-xs font-medium text-white hover:opacity-90 cursor-pointer"
                       >
                         {openQaReplayIdx === qIdx ? 'ซ่อน Timeline Replay' : 'ดู Timeline Replay'}
                       </button>
-                    </div>
-                    {openQaReplayIdx === qIdx && (
+                    )}
+                  </div>
+                }
+                replaySlot={
+                  qaClip?.mediaUrl && openQaReplayIdx === qIdx ? (
+                    <div className="pt-2">
                       <TimelineReplayPlayer
                         videoUrl={qaClip.mimeType?.startsWith('audio/') ? null : qaClip.mediaUrl}
                         audioUrl={qaClip.mediaUrl}
@@ -1442,31 +1369,10 @@ export default function GroupSummaryView({
                         slides={slides}
                         qaQuestion={q.question}
                       />
-                    )}
-                  </div>
-                )}
-
-                {ev && (
-                  <div className="rounded-lg border border-line bg-paper/70 p-3.5 text-xs space-y-1.5">
-                    {ev.feedback && (
-                      <p className="text-ink leading-relaxed">
-                        <strong className="font-semibold">คำติชม:</strong> {ev.feedback}
-                      </p>
-                    )}
-                    {ev.betterAnswer && (
-                      <p className="text-muted leading-relaxed">
-                        <strong className="font-semibold text-ink">แนวทางตอบที่ดีขึ้น:</strong>{' '}
-                        {ev.betterAnswer}
-                      </p>
-                    )}
-                    {ev.timelineNote && (
-                      <p className="text-accent leading-relaxed">
-                        <strong className="font-semibold">จังหวะระหว่างตอบ:</strong> {ev.timelineNote}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  ) : null
+                }
+              />
             );
           })}
         </div>

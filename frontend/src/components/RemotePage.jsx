@@ -3,6 +3,7 @@ import { createSocket } from '../lib/socket';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition';
 import { speakThai, stopSpeaking } from '../lib/speech';
 import { formatTime } from '../lib/metrics';
+import { ToggleSwitch } from './ui/StateViews';
 
 export default function RemotePage({ code }) {
   const [status, setStatus] = useState('connecting'); // connecting | connected | error
@@ -239,7 +240,7 @@ export default function RemotePage({ code }) {
           type="button"
           onClick={() => sendCommand(state.live ? 'stop' : 'start')}
           disabled={status !== 'connected'}
-          className={`w-full rounded-xl py-3.5 text-sm font-medium transition active:scale-[0.99] disabled:opacity-40 cursor-pointer ${
+          className={`min-h-[48px] w-full rounded-xl py-3.5 text-sm font-semibold transition active:scale-[0.985] disabled:opacity-40 cursor-pointer ${
             state.live ? 'bg-accent text-white' : 'bg-ink text-paper'
           }`}
         >
@@ -248,37 +249,34 @@ export default function RemotePage({ code }) {
       </div>
 
       {/* ตัวเลือกเสียงและไมค์มือถือ */}
-      <div className="mt-4 space-y-2 rounded-xl border border-line bg-white p-3.5 text-xs">
-        <div className="flex items-center justify-between">
+      <div className="mt-4 space-y-2.5 rounded-2xl bg-white p-4 text-xs shadow-xs">
+        <div className="flex min-h-[44px] items-center justify-between gap-2">
           <span className="text-ink font-medium">เสียงคำถามออกลำโพงมือถือ</span>
-          <button
-            type="button"
-            onClick={() => setAudioOnMobile((v) => !v)}
-            className={`rounded-full px-3 py-1 font-medium cursor-pointer ${
-              audioOnMobile ? 'bg-ink text-paper' : 'bg-paper text-muted border border-line'
-            }`}
-          >
-            {audioOnMobile ? 'เปิด' : 'ปิด'}
-          </button>
+          <ToggleSwitch
+            checked={audioOnMobile}
+            onChange={(val) => setAudioOnMobile(val)}
+            labelOn="เปิด"
+            labelOff="ปิด"
+            ariaLabel="เสียงคำถามออกลำโพงมือถือ"
+          />
         </div>
 
-        <div className="flex items-center justify-between border-t border-line/60 pt-2">
+        <div className="flex min-h-[44px] items-center justify-between gap-2 border-t border-line/60 pt-2.5">
           <div>
             <span className="text-ink font-medium">ใช้ไมค์มือถือรับเสียงพูด</span>
             {!isSecure && (
               <p className="text-[11px] text-accent">ต้องเปิดผ่าน HTTPS ถึงจะใช้ไมค์มือถือได้</p>
             )}
           </div>
-          <button
-            type="button"
-            disabled={!isSecure || !speech.supported}
-            onClick={() => setMicEnabled((v) => !v)}
-            className={`rounded-full px-3 py-1 font-medium disabled:opacity-40 cursor-pointer ${
-              micEnabled ? 'bg-accent text-white' : 'bg-paper text-muted border border-line'
-            }`}
-          >
-            {micEnabled ? 'เปิด' : 'ปิด'}
-          </button>
+          <div className={!isSecure || !speech.supported ? 'opacity-40 pointer-events-none' : ''}>
+            <ToggleSwitch
+              checked={micEnabled}
+              onChange={(val) => setMicEnabled(val)}
+              labelOn="เปิด"
+              labelOff="ปิด"
+              ariaLabel="ใช้ไมค์มือถือรับเสียงพูด"
+            />
+          </div>
         </div>
       </div>
     </div>

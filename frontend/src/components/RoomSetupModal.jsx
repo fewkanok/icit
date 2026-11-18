@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ToggleSwitch } from './ui/StateViews';
 
 const AUDIENCES = [
   { id: 'general', label: 'คนทั่วไป' },
@@ -82,8 +83,8 @@ export default function RoomSetupModal({
   const [step, setStep] = useState(1);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[2px]">
-      <div className="w-full max-w-lg rounded-2xl border border-line bg-white p-7 shadow-xl space-y-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 p-0 sm:p-4 backdrop-blur-[2px]">
+      <div className="animate-fade-up w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-7 shadow-2xl space-y-6">
         <div className="flex items-start justify-between border-b border-line pb-4">
           <div>
             <span className="inline-block rounded-full bg-paper border border-line px-2.5 py-0.5 text-[11px] font-medium text-muted">
@@ -192,15 +193,11 @@ export default function RoomSetupModal({
                   <p className="text-xs font-medium text-ink">สุ่มถามแทรกระหว่างซ้อม (-1 Token/คำถาม)</p>
                   <p className="text-[11px] text-muted">มีคำถามแทรกสั้นๆ หลังพูดบางสไลด์ (ตรวจคำตอบ -1 Token)</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={onInterruptToggle}
-                  className={`rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
-                    interruptEnabled ? 'bg-ink text-paper' : 'border border-line bg-white text-muted'
-                  }`}
-                >
-                  {interruptEnabled ? 'เปิด' : 'ปิด'}
-                </button>
+                <ToggleSwitch
+                  checked={interruptEnabled}
+                  onChange={() => onInterruptToggle?.()}
+                  ariaLabel="สุ่มถามแทรกระหว่างซ้อม"
+                />
               </div>
 
               {onCameraToggle && (
@@ -209,15 +206,11 @@ export default function RoomSetupModal({
                     <p className="text-xs font-medium text-ink">เปิดกล้องเช็กสายตา & อัดวิดีโอ</p>
                     <p className="text-[11px] text-muted">เปิดต่อเนื่องอัตโนมัติทั้งช่วงซ้อมพูดและช่วงถาม-ตอบ</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={onCameraToggle}
-                    className={`rounded-full px-3.5 py-1 text-xs font-medium transition cursor-pointer ${
-                      cameraEnabled ? 'bg-ink text-paper' : 'border border-line bg-white text-muted'
-                    }`}
-                  >
-                    {cameraEnabled ? 'เปิด' : 'ปิด'}
-                  </button>
+                  <ToggleSwitch
+                    checked={cameraEnabled}
+                    onChange={() => onCameraToggle?.()}
+                    ariaLabel="เปิดกล้องเช็กสายตาและอัดวิดีโอ"
+                  />
                 </div>
               )}
             </div>

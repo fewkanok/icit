@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 export default function FloatingCamera({ vision, live }) {
-  // ตำแหน่งเริ่มต้น: ขวาบนของจอ
-  const [position, setPosition] = useState({ x: 0, y: 90 });
-  const [width, setWidth] = useState(320); // ความกว้างเริ่มต้น 320px (ปรับได้ 220px - 520px)
+  // ตำแหน่งเริ่มต้น: ขวาล่างของจอ
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [width, setWidth] = useState(268); // ความกว้างเริ่มต้น 268px (ไม่บังปุ่มควบคุม)
   const [minimized, setMinimized] = useState(false);
   const [hasInitPos, setHasInitPos] = useState(false);
 
@@ -21,11 +21,12 @@ export default function FloatingCamera({ vision, live }) {
     startWidth: 320,
   });
 
-  // ตั้งค่าตำแหน่งเริ่มต้นให้อยู่ชิดขวาบนของจอ
+  // ตั้งค่าตำแหน่งเริ่มต้นให้อยู่ชิดขวาล่างของจอ (ไม่บังแถบเครื่องมือด้านบนหรือปุ่มหลัก)
   useEffect(() => {
     if (!hasInitPos && typeof window !== 'undefined') {
-      const initX = Math.max(20, window.innerWidth - 350);
-      setPosition({ x: initX, y: 90 });
+      const initX = Math.max(16, window.innerWidth - 296);
+      const initY = Math.max(90, window.innerHeight - 250);
+      setPosition({ x: initX, y: initY });
       setHasInitPos(true);
     }
   }, [hasInitPos]);

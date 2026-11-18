@@ -73,11 +73,11 @@ export default function GroupAssignModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl"
+        className="animate-fade-up flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-6 py-4">
@@ -265,18 +265,30 @@ export default function GroupAssignModal({
                   </div>
 
                   <div className="mt-2.5 pt-2 border-t border-line/60">
-                    {owner ? (
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${getMemberColor(
-                          members,
-                          owner.id,
-                        )}`}
-                      >
-                        {owner.name}
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-faint italic">ยังไม่ได้กำหนดคนพูด</span>
-                    )}
+                    <select
+                      value={ownerId || ''}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) {
+                          assignSlide(idx, val);
+                        } else {
+                          unassignSlide(idx);
+                        }
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-medium focus:border-ink focus:outline-none cursor-pointer ${
+                        owner
+                          ? getMemberColor(members, owner.id)
+                          : 'border-line bg-paper/50 text-muted'
+                      }`}
+                    >
+                      <option value="">-- เลือกคนพูด --</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} {m.role === 'host' ? '(หัวหน้า)' : ''}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               );

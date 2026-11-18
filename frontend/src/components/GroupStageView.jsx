@@ -186,12 +186,12 @@ export default function GroupStageView({
   const [slideResults, setSlideResults] = useState({});
   const [camCollapsed, setCamCollapsed] = useState(false);
   const [camHidden, setCamHidden] = useState(false);
-  const [camWidth, setCamWidth] = useState(320);
+  const [camWidth, setCamWidth] = useState(268);
   const [floatPos, setFloatPos] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 90 };
     return {
-      x: Math.max(20, window.innerWidth - 350),
-      y: 90,
+      x: Math.max(16, window.innerWidth - 296),
+      y: Math.max(90, window.innerHeight - 250),
     };
   });
 
@@ -1216,22 +1216,28 @@ export default function GroupStageView({
           </div>
 
           <div className="flex flex-1 flex-col gap-5 p-5">
-            {/* นาฬิกาจับเวลา + สถิติสด */}
-            <div className="flex items-baseline justify-between gap-2">
-              <div className="font-mono text-4xl tabular-nums tracking-tight text-ink">
-                {formatTime(isRecording ? elapsedSec : slideResult?.duration || 0)}
-              </div>
-              {isRecording && <LiveWaveform level={audioLevel} />}
+            {/* นาฬิกาจับเวลา + สถิติสด (โครงสร้างเดียวกับซ้อมเดี่ยว) */}
+            <div className="font-mono text-4xl tabular-nums tracking-tight text-ink">
+              {formatTime(isRecording ? elapsedSec : slideResult?.duration || 0)}
             </div>
 
             {isRecording && (
-              <div className="flex flex-wrap items-center gap-2">
-                <LivePace wpm={liveWpm} fillers={liveFillers} elapsed={elapsedSec} />
-                {isDeadAir && (
-                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-medium text-amber-800">
-                    เงียบค้าง!
-                  </span>
-                )}
+              <div className="space-y-2.5">
+                <div className="rounded-xl border border-line bg-white p-3 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted">ความเร็วตอนนี้</span>
+                    <LivePace wpm={liveWpm} fillers={liveFillers} elapsed={elapsedSec} />
+                    {isDeadAir && (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-medium text-amber-800">
+                        เงียบค้าง!
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-line bg-white px-3.5 py-2.5">
+                  <LiveWaveform level={audioLevel} />
+                  <span className="font-mono text-[10px] tracking-wider text-muted">LIVE AUDIO</span>
+                </div>
               </div>
             )}
 
@@ -1241,7 +1247,7 @@ export default function GroupStageView({
                 liveTranscript ? (
                   <p className="text-ink">{liveTranscript}</p>
                 ) : (
-                  <p className="text-faint">กำลังฟังเสียงพูดของคุณ...</p>
+                  <p className="text-faint">เริ่มพูดได้เลย...</p>
                 )
               ) : slideResult ? (
                 slideResult.transcript ? (
