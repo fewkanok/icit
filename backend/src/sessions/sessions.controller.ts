@@ -83,6 +83,14 @@ class ConfirmVideoUploadDto {
   path!: string;
 }
 
+class DeleteSessionsDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  ids?: string[];
+}
+
 class SaveSessionDto {
   @IsOptional()
   @IsString()
@@ -231,5 +239,13 @@ export class SessionsController {
     @Param('id') id: string,
   ) {
     return this.sessionsService.deleteCloudVideo(req.user.id, id, this.extractBearer(req));
+  }
+
+  @Delete()
+  deleteSessions(
+    @Req() req: { user: AuthUserPayload; headers?: { authorization?: string } },
+    @Body() body?: DeleteSessionsDto,
+  ) {
+    return this.sessionsService.deleteSessions(req.user.id, body?.ids, this.extractBearer(req));
   }
 }

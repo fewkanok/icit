@@ -424,4 +424,29 @@ export class SessionsService {
     });
     return { ok: true };
   }
+
+  async deleteSessions(userId: string, ids?: string[], bearerToken?: string) {
+    const cleanIds = Array.isArray(ids)
+      ? ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+
+    const where = cleanIds.length > 0 ? { userId, id: { in: cleanIds } } : { userId };
+
+    const owned = await this.prisma.rehearsalSession.findMany({
+      where,
+      select: { id: true, videoPath: true },
+    });
+
+    const videoPaths = owned
+      .map((s) => s.videoPath)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0);
+
+    if (videoPaths.length > 0) {
+      const { client } = this.getStorageClient(bearerToken);
+      await client.storage.from(VIDEO_BUCKET).remove(videoPaths).catch(() => {});
+    }
+
+    const result = await this.prisma.rehearsalSession.deleteMany({ where });
+    return { ok: true, deletedCount: result.count };
+  }
 }

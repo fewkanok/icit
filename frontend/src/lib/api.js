@@ -121,6 +121,20 @@ export async function deleteCloudVideo(sessionId) {
   return res.json();
 }
 
+export async function deleteSessions(ids = null) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/sessions`, {
+    method: 'DELETE',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(Array.isArray(ids) && ids.length > 0 ? { ids } : {}),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || 'ลบประวัติการซ้อมไม่สำเร็จ');
+  }
+  return res.json();
+}
+
 export async function uploadSessionVideoToCloud(sessionId, blob) {
   if (!sessionId || !blob) {
     throw new Error('ไม่พบไฟล์วิดีโอสำหรับอัปโหลด');

@@ -96,3 +96,36 @@ export async function deleteLocalSessionVideo(sessionId) {
     // ignore
   }
 }
+
+export async function getLocalVideosStats() {
+  try {
+    const db = await openVideoDb();
+    const items = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getAll();
+      req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    const totalBytes = items.reduce((sum, it) => sum + (Number(it?.size) || it?.blob?.size || 0), 0);
+    return { count: items.length, totalBytes };
+  } catch {
+    return { count: 0, totalBytes: 0 };
+  }
+}
+
+export async function clearAllLocalVideos() {
+  try {
+    const db = await openVideoDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    return true;
+  } catch {
+    return false;
+  }
+}

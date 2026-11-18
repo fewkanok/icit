@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   deleteCloudVideo,
+  deleteSessions,
   fetchCloudVideoUrl,
   fetchSessionDetail,
   fetchSessions,
 } from '../lib/api';
 import { formatTime } from '../lib/metrics';
-import { deleteLocalSessionVideo, getLocalSessionVideo } from '../lib/videoStore';
+import {
+  clearAllLocalVideos,
+  deleteLocalSessionVideo,
+  getLocalSessionVideo,
+  getLocalVideosStats,
+} from '../lib/videoStore';
+import { askConfirm } from './ConfirmModal';
 import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
 import RoundComparisonCard from './RoundComparisonCard';
@@ -30,6 +37,14 @@ export default function HistoryModal({ open, onClose }) {
   const [modeFilter, setModeFilter] = useState('all'); // 'all' | 'solo' | 'group'
   const [videoInfo, setVideoInfo] = useState(null); // { url, source: 'local' | 'cloud' }
   const [videoLoading, setVideoLoading] = useState(false);
+  const [localStats, setLocalStats] = useState({ count: 0, totalBytes: 0 });
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+
+  const refreshLocalStats = () => {
+    void getLocalVideosStats().then((stats) => setLocalStats(stats));
+  };
 
   const loadHistoryList = () => {
     setLoading(true);
@@ -51,7 +66,10 @@ export default function HistoryModal({ open, onClose }) {
     let active = true;
     setLoading(true);
     setSelected(null);
+    setSelectMode(false);
+    setSelectedIds([]);
     setError(null);
+    refreshLocalStats();
     fetchSessions()
       .then((list) => {
         if (active) setSessions(Array.isArray(list) ? list : []);
@@ -184,9 +202,39 @@ export default function HistoryModal({ open, onClose }) {
         </div>
       </div>
 
-      {/* หมายเหตุเรื่องไฟล์วิดีโอ/เสียง */}
-      <div className="rounded-xl border border-line bg-paper px-4 py-3 text-xs text-muted">
-        รองรับทั้งโหมดเดี่ยวและโหมดกลุ่ม · คลิปวิดีโอที่บันทึกจากเครื่องนี้ดูย้อนหลังได้ฟรีทันที (และสามารถอัปโหลดขึ้นคลาวด์ได้สูงสุด 3 คลิป/คน เพื่อดูข้ามเครื่อง)
+      {/* หมายเหตุเรื่องไฟล์วิดีโอ/เสียง + จัดการคลิปในเครื่อง */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-paper px-4 py-3 text-xs text-muted">
+        <span>
+          รองรับทั้งโหมดเดี่ยวและโหมดกลุ่ม · คลิปในเครื่องนี้:{' '}
+          <strong className="font-medium text-ink">
+            {localStats.count} คลิป ({(localStats.totalBytes / (1024 * 1024)).toFixed(1)} MB)
+          </strong>
+        </span>
+        {localStats.count > 0 && !selected && (
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={async () => {
+              const ok = await askConfirm({
+                key: 'clear-all-local-videos',
+                allowDontShowAgain: false,
+                danger: true,
+                title: 'ล้างคลิปวิดีโอในเครื่องทั้งหมด?',
+                message: `จะลบไฟล์คลิปที่บันทึกค้างอยู่ในเบราว์เซอร์เครื่องนี้ทั้งหมด ${localStats.count} คลิป (${(localStats.totalBytes / (1024 * 1024)).toFixed(1)} MB) เพื่อคืนพื้นที่ทันที (ไม่กระทบประวัติบนคลาวด์)`,
+                confirmText: 'ล้างคลิปในเครื่องทั้งหมด',
+              });
+              if (!ok) return;
+              setDeleting(true);
+              await clearAllLocalVideos();
+              setVideoInfo((prev) => (prev?.source === 'local' ? null : prev));
+              refreshLocalStats();
+              setDeleting(false);
+            }}
+            className="rounded-lg border border-accent/30 bg-white px-3 py-1.5 font-medium text-accent transition hover:bg-accent/5 disabled:opacity-50 cursor-pointer"
+          >
+            ล้างคลิปในเครื่องทั้งหมด
+          </button>
+        )}
       </div>
 
       {error && (
@@ -695,7 +743,7 @@ export default function HistoryModal({ open, onClose }) {
               placeholder="ค้นหาชื่อสไลด์ หรือรหัสห้อง..."
               className="w-full sm:w-64 rounded-lg border border-line bg-white px-3 py-1.5 text-xs text-ink placeholder:text-faint focus:border-ink focus:outline-none"
             />
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {[
                 { key: 'all', label: `ทั้งหมด (${sessions.length})` },
                 { key: 'solo', label: 'เดี่ยว' },
@@ -717,6 +765,95 @@ export default function HistoryModal({ open, onClose }) {
                   {opt.label}
                 </button>
               ))}
+
+              <span className="mx-1 h-4 w-px bg-line hidden sm:inline-block" />
+
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => {
+                  setSelectMode((v) => !v);
+                  setSelectedIds([]);
+                }}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition cursor-pointer ${
+                  selectMode
+                    ? 'bg-ink text-paper'
+                    : 'border border-line bg-white text-ink hover:border-faint'
+                }`}
+              >
+                {selectMode ? 'ยกเลิกเลือก' : 'เลือกเพื่อลบ'}
+              </button>
+
+              {selectMode && selectedIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      key: 'delete-selected-history',
+                      allowDontShowAgain: false,
+                      danger: true,
+                      title: `ลบประวัติที่เลือก ${selectedIds.length} รายการ?`,
+                      message:
+                        'จะลบประวัติการซ้อม คลิปบนคลาวด์ และคลิปในเครื่องของรายการที่เลือกออกถาวร',
+                      confirmText: `ลบ ${selectedIds.length} รายการ`,
+                    });
+                    if (!ok) return;
+                    setDeleting(true);
+                    setError(null);
+                    try {
+                      await deleteSessions(selectedIds);
+                      await Promise.all(selectedIds.map((id) => deleteLocalSessionVideo(id)));
+                      setSessions((prev) => prev.filter((item) => !selectedIds.includes(item.id)));
+                      setSelectedIds([]);
+                      setSelectMode(false);
+                      refreshLocalStats();
+                    } catch (err) {
+                      setError(err.message || 'ลบประวัติที่เลือกไม่สำเร็จ');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
+                >
+                  ลบที่เลือก ({selectedIds.length})
+                </button>
+              )}
+
+              {!selectMode && (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={async () => {
+                    const ok = await askConfirm({
+                      key: 'delete-all-history',
+                      allowDontShowAgain: false,
+                      danger: true,
+                      title: 'ลบประวัติการซ้อมทั้งหมด?',
+                      message:
+                        'จะลบประวัติการซ้อมของคุณทั้งหมด คลิปบนคลาวด์ และคลิปในเครื่องทั้งหมดออกถาวร ไม่สามารถกู้คืนได้',
+                      confirmText: 'ลบประวัติทั้งหมด',
+                    });
+                    if (!ok) return;
+                    setDeleting(true);
+                    setError(null);
+                    try {
+                      await deleteSessions();
+                      await clearAllLocalVideos();
+                      setSessions([]);
+                      setSelectedIds([]);
+                      refreshLocalStats();
+                    } catch (err) {
+                      setError(err.message || 'ลบประวัติทั้งหมดไม่สำเร็จ');
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  className="rounded-lg border border-accent/30 bg-white px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/5 disabled:opacity-50 cursor-pointer"
+                >
+                  ลบประวัติทั้งหมด
+                </button>
+              )}
             </div>
           </div>
 
@@ -732,47 +869,70 @@ export default function HistoryModal({ open, onClose }) {
           ) : (
             <>
               <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
-                {filteredSessions.slice((sessionPage - 1) * 6, sessionPage * 6).map((s) => (
+                {filteredSessions.slice((sessionPage - 1) * 6, sessionPage * 6).map((s) => {
+                  const isChecked = selectedIds.includes(s.id);
+                  return (
               <button
                 key={s.id}
                 type="button"
                 onClick={() => {
+                  if (selectMode) {
+                    setSelectedIds((prev) =>
+                      prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id],
+                    );
+                    return;
+                  }
                   setDetailTab('overview');
                   setSlidePage(1);
                   setQaPage(1);
                   handleSelect(s.id);
                 }}
-                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-paper cursor-pointer"
+                className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-paper cursor-pointer ${
+                  isChecked ? 'bg-accent/5' : ''
+                }`}
               >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="truncate text-sm font-medium text-ink">{s.deckName}</p>
-                    {s.isGroup && (
-                      <span className="rounded-full border border-ink/20 bg-paper px-2 py-0.5 text-[10px] font-medium text-ink">
-                        กลุ่ม
-                      </span>
-                    )}
-                    {s.roundNumber > 1 && (
-                      <span className="rounded-full border border-line bg-paper px-2 py-0.5 font-mono text-[10px] text-muted">
-                        รอบ {s.roundNumber}
-                      </span>
-                    )}
-                    {s.videoPath && (
-                      <span className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted">
-                        คลิปคลาวด์
-                      </span>
-                    )}
+                <div className="flex min-w-0 items-center gap-3">
+                  {selectMode && (
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      readOnly
+                      className="size-4 shrink-0 accent-accent pointer-events-none"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="truncate text-sm font-medium text-ink">{s.deckName}</p>
+                      {s.isGroup && (
+                        <span className="rounded-full border border-ink/20 bg-paper px-2 py-0.5 text-[10px] font-medium text-ink">
+                          กลุ่ม
+                        </span>
+                      )}
+                      {s.roundNumber > 1 && (
+                        <span className="rounded-full border border-line bg-paper px-2 py-0.5 font-mono text-[10px] text-muted">
+                          รอบ {s.roundNumber}
+                        </span>
+                      )}
+                      {s.videoPath && (
+                        <span className="rounded-full border border-line bg-paper px-2 py-0.5 text-[10px] text-muted">
+                          คลิปคลาวด์
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {new Date(s.createdAt).toLocaleString('th-TH')} · {s.slideCount} หน้า ·{' '}
+                      {formatTime(s.totalDurationSec)} · {s.avgWpm} คำ/นาที
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {new Date(s.createdAt).toLocaleString('th-TH')} · {s.slideCount} หน้า ·{' '}
-                    {formatTime(s.totalDurationSec)} · {s.avgWpm} คำ/นาที
-                  </p>
                 </div>
-                <span className="shrink-0 rounded-md border border-line bg-paper px-3 py-1 font-mono text-xs text-ink">
-                  ดูรายละเอียด
-                </span>
+                {!selectMode && (
+                  <span className="shrink-0 rounded-md border border-line bg-paper px-3 py-1 font-mono text-xs text-ink">
+                    ดูรายละเอียด
+                  </span>
+                )}
               </button>
-                ))}
+                  );
+                })}
               </div>
               <Pagination
                 page={sessionPage}
