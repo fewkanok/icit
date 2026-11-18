@@ -212,8 +212,25 @@ export default function PublicSharePage({ shareId }) {
 
                 {slides.length > 0 && (
                   <SummaryCharts
-                    slides={slides.map((s, idx) => ({ title: s.title || `หน้า ${idx + 1}` }))}
-                    results={Object.fromEntries(slides.map((s, idx) => [idx, s]))}
+                    avgWpm={data.avgWpm || 0}
+                    avgEyeContact={data.avgEyeContactPct ?? null}
+                    items={slides.map((s, idx) => {
+                      const slideIndex = s.index ?? idx;
+                      const aiSlide = aiSlides.find((x) => x.index === slideIndex);
+                      const missedCount = aiSlide?.missed?.length || 0;
+                      const fillerCount = s.fillersCount ?? 0;
+                      const hints = [];
+                      if (missedCount > 0) hints.push(`ลืม ${missedCount} ประเด็น`);
+                      if (fillerCount > 0) hints.push(`ติดปาก ${fillerCount}`);
+                      return {
+                        index: slideIndex,
+                        label: `สไลด์ ${slideIndex + 1}`,
+                        wpm: s.wpm || 0,
+                        eyeContactPct: s.eyeContactPct ?? null,
+                        hasIssue: hints.length > 0,
+                        issueHint: hints[0] || '',
+                      };
+                    })}
                   />
                 )}
 

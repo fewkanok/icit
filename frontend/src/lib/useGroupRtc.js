@@ -138,6 +138,15 @@ export function useGroupRtc({ socket, active, selfId, members }) {
 
     const initMedia = async () => {
       setMediaError('');
+      const icePromise = Promise.race([
+        loadIceServers(),
+        new Promise((resolve) => setTimeout(() => resolve(DEFAULT_ICE_SERVERS), 2000)),
+      ]).then((servers) => {
+        if (!cancelled && Array.isArray(servers) && servers.length > 0) {
+          iceServersRef.current = servers;
+        }
+      });
+
       let stream = null;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -155,6 +164,8 @@ export function useGroupRtc({ socket, active, selfId, members }) {
           setMediaError('ไม่สามารถเปิดกล้องหรือไมโครโฟนได้ (ยังสามารถดูสไลด์และฟังเพื่อนได้)');
         }
       }
+
+      await icePromise;
 
       if (cancelled) {
         stream?.getTracks().forEach((t) => t.stop());
