@@ -190,45 +190,6 @@ function buildFlowGuideFlex(appBaseUrl) {
           },
         ],
       },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        paddingAll: '16px',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#D95D39',
-            height: 'sm',
-            action: {
-              type: 'message',
-              label: '❓ ให้ LangMind สุ่มคำถามจากสไลด์',
-              text: 'สุ่มคำถามจากสไลด์',
-            },
-          },
-          {
-            type: 'button',
-            style: 'secondary',
-            height: 'sm',
-            action: {
-              type: 'message',
-              label: '📄 ดูตัวอย่างวิธีส่งสไลด์ / เนื้อหา',
-              text: 'วิธีส่งสไลด์',
-            },
-          },
-          {
-            type: 'button',
-            style: 'link',
-            height: 'sm',
-            action: {
-              type: 'uri',
-              label: '🌐 เปิดหน้าเว็บซ้อมพรีเซนต์หลัก',
-              uri: appBaseUrl,
-            },
-          },
-        ],
-      },
     },
   };
 }
@@ -309,6 +270,87 @@ async function replyToLine(channelAccessToken, replyToken, messages) {
   });
 }
 
+async function pushToLine(channelAccessToken, to, messages) {
+  if (!to || !channelAccessToken) return;
+  await fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${channelAccessToken}`,
+    },
+    body: JSON.stringify({
+      to,
+      messages,
+    }),
+  }).catch((err) => {
+    console.error('[LINE Webhook] Push failed:', err?.message);
+  });
+}
+
+function buildPdfActionFlex({ title, pageCount, rehearsalUrl }) {
+  return {
+    type: 'flex',
+    altText: `พร้อมซ้อมพรีเซนต์: ${title}`,
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'text',
+            text: 'ICIT REHEARSAL COACH',
+            weight: 'bold',
+            size: 'xs',
+            color: '#D95D39',
+          },
+          {
+            type: 'text',
+            text: title,
+            weight: 'bold',
+            size: 'lg',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: `สรุปข้อมูลสไลด์ ${pageCount} หน้าเรียบร้อยแล้ว เลือกดำเนินการต่อด้านล่างได้เลยครับ`,
+            size: 'xs',
+            color: '#666666',
+            wrap: true,
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#D95D39',
+            action: {
+              type: 'uri',
+              label: '🎯 เข้าห้องซ้อมพรีเซนต์ทันที',
+              uri: rehearsalUrl,
+            },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            action: {
+              type: 'message',
+              label: '❓ สุ่มคำถามจากสไลด์',
+              text: 'สุ่มคำถามจากสไลด์',
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     return res.status(200).json({ ok: true, service: 'ICIT x LangMind LINE Webhook Bridge' });
@@ -358,6 +400,7 @@ export default async function handler(req, res) {
 
     let modified = false;
     const forwardEvents = [];
+    const pendingPdfCards = [];
 
     for (const ev of events) {
       // 1. เมื่อกดแอดเพื่อนใหม่ (follow) -> แสดงการ์ดบอก Flow 4 ขั้นตอน
@@ -547,10 +590,18 @@ export default async function handler(req, res) {
           `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" เข้ามาในแชท LINE ครับ`,
           extractedTextBlock,
           `[คำสั่งสำคัญในการตอบกลับ]:`,
-          `1. กรุณาสรุปข้อมูลสำคัญของไฟล์ PDF ที่ส่งมานี้ (ภาพรวมเนื้อหา และสรุปประเด็นสำคัญ + บทพูดแนะนำของแต่ละหน้า) ออกมาเป็นข้อความในแชท LINE ให้ผมอ่านได้ทันที (ห้ามเรียกใช้ create_downloadable_file และห้ามตอบสั้นๆ แค่ว่าสร้างไฟล์แล้ว โดยไม่แสดงสรุปเนื้อหาในแชท)`,
-          `2. แนบลิงก์เข้าห้องซ้อมพรีเซนต์ที่เชื่อมกับไฟล์ PDF ชุดนี้ไว้ท้ายข้อความด้วยครับ: ${pdfRehearsalUrl}`,
-          `3. แจ้งท้ายข้อความว่า หากต้องการซ้อมตอบคำถามจากเนื้อหาไฟล์นี้ ให้พิมพ์ว่า "สุ่มคำถามจากสไลด์" ได้เลยครับ`,
+          `1. กรุณาสรุปข้อมูลสำคัญของไฟล์ PDF ที่ส่งมานี้ (ภาพรวมเนื้อหา และสรุปประเด็นสำคัญ + บทพูดแนะนำของแต่ละหน้า) ออกมาเป็นข้อความในแชท LINE ให้ผมอ่านได้ทันที`,
+          `2. ห้ามใส่ลิงก์ URL (https://...) ลงในข้อความตอบกลับนี้ และห้ามเรียกใช้ create_downloadable_file หรือ createRehearsalPreset เพราะระบบจะส่งการ์ดปุ่มกดเข้าห้องซ้อมพรีเซนต์และปุ่มสุ่มคำถามจากสไลด์ตามไปให้ผู้ใช้โดยอัตโนมัติครับ`,
         ].join('\n\n');
+
+        if (ev?.source?.userId && pdfRehearsalUrl.length <= 990) {
+          pendingPdfCards.push({
+            userId: ev.source.userId,
+            title: cleanTitle,
+            pageCount: totalPdfPages || extractedPages.length || 5,
+            rehearsalUrl: pdfRehearsalUrl,
+          });
+        }
 
         forwardEvents.push({
           ...ev,
@@ -592,6 +643,12 @@ export default async function handler(req, res) {
     });
 
     const respText = await forwardRes.text().catch(() => '');
+
+    // ส่งการ์ดปุ่มกด (เข้าห้องซ้อมพรีเซนต์ + สุ่มคำถามจากสไลด์) ตามหลังข้อความสรุปของ LangMind ทันที
+    for (const card of pendingPdfCards) {
+      await pushToLine(channelAccessToken, card.userId, [buildPdfActionFlex(card)]);
+    }
+
     return res.status(200).send(respText || 'OK');
   } catch (err) {
     console.error('[LINE Webhook Bridge] Error:', err);
