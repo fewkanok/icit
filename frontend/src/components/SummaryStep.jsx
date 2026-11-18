@@ -15,6 +15,7 @@ import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
 import RoundComparisonCard from './RoundComparisonCard';
 import QaResultCard from './QaResultCard';
+import ShareSessionModal from './ShareSessionModal';
 import MiniAudioPlayer from './ui/MiniAudioPlayer';
 import GeminiCooldownButton from './ui/GeminiCooldownButton';
 import { SkeletonSummaryOverview, SkeletonVideoMerge } from './ui/Skeleton';
@@ -41,6 +42,7 @@ export default function SummaryStep({
   savedSessionId = null,
   seriesId = null,
   onSavedSessionIdChange,
+  onTokensChange,
   onUpdateQaResults,
   onBack,
   onReRecordSlide,
@@ -219,6 +221,8 @@ export default function SummaryStep({
   }
   const savingPromiseRef = useRef(null);
   const [referralAwarded, setReferralAwarded] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareMeta, setShareMeta] = useState({ shareId: '', isPublic: false });
   const [refCopied, setRefCopied] = useState(false);
 
   useEffect(() => {
@@ -263,6 +267,13 @@ export default function SummaryStep({
           if (res?.session?.id) {
             savedSessionIdRef.current = res.session.id;
             onSavedSessionIdChange?.(res.session.id);
+            setShareMeta((prev) => ({
+              shareId: res.session.shareId || prev.shareId || '',
+              isPublic:
+                typeof res.session.isPublic === 'boolean'
+                  ? res.session.isPublic
+                  : prev.isPublic,
+            }));
           }
           if (active && res?.referralBonusAwarded) {
             setReferralAwarded(true);
@@ -1626,28 +1637,50 @@ export default function SummaryStep({
         <div>
           <h3 className="text-sm font-medium text-ink">แชร์ผลซ้อมและชวนเพื่อน</h3>
           <p className="mt-0.5 text-xs text-muted">
-            ดาวน์โหลดการ์ดคะแนนไว้โพสต์อวดผลงาน หรือส่งลิงก์ให้เพื่อนมาซ้อมเพื่อรับ +10 Tokens ทั้งคู่
+            ส่งลิงก์สรุปผลไป LINE, X, Facebook หรือคัดลอกส่งให้อาจารย์/เพื่อน (เปิดแชร์วันละครั้งรับ +1 Token)
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleDownloadResultCard}
-            className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink cursor-pointer"
-          >
-            ดาวน์โหลดการ์ดสรุป (.png)
-          </button>
+          {user && (
+            <button
+              type="button"
+              onClick={() => setShareModalOpen(true)}
+              className="rounded-lg bg-ink px-4 py-2 text-xs font-semibold text-paper transition hover:bg-ink/90 cursor-pointer"
+            >
+              แชร์ผลการซ้อม (LINE / X / ลิงก์)
+            </button>
+          )}
           {referralUrl && (
             <button
               type="button"
               onClick={handleCopyReferral}
-              className="rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-white transition hover:bg-accent/90 cursor-pointer"
+              className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink cursor-pointer"
             >
               {refCopied ? 'คัดลอกลิงก์ชวนเพื่อนแล้ว' : 'คัดลอกลิงก์ชวนเพื่อน (+10 Tokens)'}
             </button>
           )}
         </div>
       </div>
+
+      <ShareSessionModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        sessionId={savedSessionId || savedSessionIdRef.current}
+        initialShareId={shareMeta.shareId}
+        initialIsPublic={shareMeta.isPublic}
+        deckName={deck.name}
+        isGroup={false}
+        totalDurationSec={Math.floor(totalTime)}
+        avgWpm={avgWpm}
+        avgEyeContactPct={avgEyeContact}
+        referralCode={user?.referralCode || ''}
+        onShareUpdated={(res) => {
+          setShareMeta({ shareId: res.shareId || '', isPublic: Boolean(res.isPublic) });
+          if (typeof res.tokens === 'number') {
+            onTokensChange?.(res.tokens);
+          }
+        }}
+      />
 
       <VideoLayoutModal
         open={layoutModalOpen}

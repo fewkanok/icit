@@ -46,6 +46,7 @@ model RehearsalSession {
   seriesId         String?
   roundNumber      Int                    @default(1)
   shareId          String?                @unique
+  isPublic         Boolean                @default(false)
   slideCount       Int                    @default(0)
   totalDurationSec Int                    @default(0)
   avgWpm           Int                    @default(0)

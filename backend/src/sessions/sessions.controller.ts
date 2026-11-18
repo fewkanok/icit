@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -89,6 +90,11 @@ class DeleteSessionsDto {
   @ArrayMaxSize(100)
   @IsString({ each: true })
   ids?: string[];
+}
+
+class UpdateShareDto {
+  @IsBoolean()
+  isPublic!: boolean;
 }
 
 class SaveSessionDto {
@@ -233,6 +239,15 @@ export class SessionsController {
     return this.sessionsService.getCloudVideoUrl(req.user.id, id, this.extractBearer(req));
   }
 
+  @Patch(':id/share')
+  updateShare(
+    @Req() req: { user: AuthUserPayload },
+    @Param('id') id: string,
+    @Body() body: UpdateShareDto,
+  ) {
+    return this.sessionsService.setSessionShare(req.user.id, id, body.isPublic);
+  }
+
   @Delete(':id/video')
   deleteCloudVideo(
     @Req() req: { user: AuthUserPayload; headers?: { authorization?: string } },
@@ -247,5 +262,15 @@ export class SessionsController {
     @Body() body?: DeleteSessionsDto,
   ) {
     return this.sessionsService.deleteSessions(req.user.id, body?.ids, this.extractBearer(req));
+  }
+}
+
+@Controller('api/public/sessions')
+export class PublicSessionsController {
+  constructor(private readonly sessionsService: SessionsService) {}
+
+  @Get(':shareId')
+  getPublicSession(@Param('shareId') shareId: string) {
+    return this.sessionsService.getPublicSessionByShareId(shareId);
   }
 }

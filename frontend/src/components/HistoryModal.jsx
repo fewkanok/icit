@@ -18,10 +18,11 @@ import SummaryCharts from './SummaryCharts';
 import Pagination from './Pagination';
 import RoundComparisonCard from './RoundComparisonCard';
 import QaResultCard from './QaResultCard';
+import ShareSessionModal from './ShareSessionModal';
 import { SkeletonDetailView, SkeletonHistoryList } from './ui/Skeleton';
 import { EmptyState, ErrorState, NoSearchResults } from './ui/StateViews';
 
-export default function HistoryModal({ open, onClose }) {
+export default function HistoryModal({ open, onClose, user = null, onTokensChange }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -41,6 +42,7 @@ export default function HistoryModal({ open, onClose }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleting, setDeleting] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   const refreshLocalStats = () => {
     void getLocalVideosStats().then((stats) => setLocalStats(stats));
@@ -252,7 +254,8 @@ export default function HistoryModal({ open, onClose }) {
       ) : selected ? (
         <div className="space-y-5">
           {/* แถบแท็บสลับหมวด ไม่ให้หน้ายาวลงล่าง */}
-          <div className="flex flex-wrap gap-2 border-b border-line pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+            <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setDetailTab('overview')}
@@ -290,6 +293,14 @@ export default function HistoryModal({ open, onClose }) {
                 ถาม-ตอบ ({qaList.length})
               </button>
             )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShareModalOpen(true)}
+              className="rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-accent/90 cursor-pointer"
+            >
+              แชร์ผลการซ้อม (LINE / X / ลิงก์)
+            </button>
           </div>
 
           {detailTab === 'overview' && (
@@ -944,6 +955,35 @@ export default function HistoryModal({ open, onClose }) {
           )}
         </div>
       )}
+
+      <ShareSessionModal
+        open={shareModalOpen && Boolean(selected)}
+        onClose={() => setShareModalOpen(false)}
+        sessionId={selected?.id}
+        initialShareId={selected?.shareId || ''}
+        initialIsPublic={Boolean(selected?.isPublic)}
+        deckName={selected?.deckName || ''}
+        isGroup={Boolean(selected?.isGroup)}
+        totalDurationSec={selected?.totalDurationSec || 0}
+        avgWpm={selected?.avgWpm || 0}
+        avgEyeContactPct={selected?.avgEyeContactPct ?? null}
+        referralCode={user?.referralCode || ''}
+        onShareUpdated={(res) => {
+          setSelected((prev) =>
+            prev ? { ...prev, shareId: res.shareId, isPublic: Boolean(res.isPublic) } : prev,
+          );
+          setSessions((prev) =>
+            prev.map((item) =>
+              item.id === selected?.id
+                ? { ...item, shareId: res.shareId, isPublic: Boolean(res.isPublic) }
+                : item,
+            ),
+          );
+          if (typeof res.tokens === 'number') {
+            onTokensChange?.(res.tokens);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -2,15 +2,77 @@ import { Injectable } from '@nestjs/common';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 const EDGE_TTS_CACHE_MAX = 120;
+const DEFAULT_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+const ICE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class AppService {
   private readonly edgeTtsCache = new Map<string, string>();
   private readonly edgeTtsPending = new Map<string, Promise<{ audioDataUrl: string }>>();
   private edgeTtsQueue: Promise<void> = Promise.resolve();
+  private iceServersCache: { servers: unknown[]; expiresAt: number } | null = null;
 
   getHello(): string {
     return 'Hello World!';
+  }
+
+  async getRtcIceServers(): Promise<{ iceServers: unknown[] }> {
+    const now = Date.now();
+    if (this.iceServersCache && this.iceServersCache.expiresAt > now) {
+      return { iceServers: this.iceServersCache.servers };
+    }
+
+    const turnUser = process.env.METERED_TURN_USERNAME?.trim();
+    const turnCred = process.env.METERED_TURN_CREDENTIAL?.trim();
+    if (turnUser && turnCred) {
+      const servers = [
+        ...DEFAULT_ICE_SERVERS,
+        { urls: 'stun:stun.relay.metered.ca:80' },
+        {
+          urls: [
+            'turn:global.relay.metered.ca:80',
+            'turn:global.relay.metered.ca:80?transport=tcp',
+            'turn:global.relay.metered.ca:443',
+            'turns:global.relay.metered.ca:443?transport=tcp',
+          ],
+          username: turnUser,
+          credential: turnCred,
+        },
+      ];
+      this.iceServersCache = { servers, expiresAt: now + ICE_CACHE_TTL_MS };
+      return { iceServers: servers };
+    }
+
+    const rawDomain = process.env.METERED_DOMAIN?.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const apiKey = process.env.METERED_API_KEY?.trim();
+
+    if (!rawDomain || !apiKey) {
+      return { iceServers: DEFAULT_ICE_SERVERS };
+    }
+
+    try {
+      const res = await fetch(
+        `https://${rawDomain}/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const list = (await res.json()) as unknown;
+      if (Array.isArray(list) && list.length > 0) {
+        const servers = [...DEFAULT_ICE_SERVERS, ...list];
+        this.iceServersCache = { servers, expiresAt: now + ICE_CACHE_TTL_MS };
+        return { iceServers: servers };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[TURN] Metered fetch failed, falling back to STUN: ${msg}`);
+    }
+
+    return { iceServers: DEFAULT_ICE_SERVERS };
   }
 
   private async runEdgeTtsOnce(clean: string): Promise<string> {

@@ -11,6 +11,11 @@ export class AppController {
     return this.appService.getHello();
   }
 
+  @Get('api/rtc/ice-servers')
+  getRtcIceServers() {
+    return this.appService.getRtcIceServers();
+  }
+
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('api/tts/free')
   synthesizeFreeSpeech(@Body() body: { text?: string }) {

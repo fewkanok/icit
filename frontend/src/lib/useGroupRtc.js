@@ -1,9 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { API_BASE } from './api';
 
-const ICE_SERVERS = [
+const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
+
+let iceCache = { servers: null, expiresAt: 0 };
+let icePending = null;
+
+async function loadIceServers() {
+  const now = Date.now();
+  if (iceCache.servers && iceCache.expiresAt > now) {
+    return iceCache.servers;
+  }
+  if (icePending) return icePending;
+
+  icePending = fetch(`${API_BASE}/api/rtc/ice-servers`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (Array.isArray(data?.iceServers) && data.iceServers.length > 0) {
+        iceCache = { servers: data.iceServers, expiresAt: Date.now() + 5 * 60 * 1000 };
+        return data.iceServers;
+      }
+      return DEFAULT_ICE_SERVERS;
+    })
+    .catch(() => DEFAULT_ICE_SERVERS)
+    .finally(() => {
+      icePending = null;
+    });
+
+  return icePending;
+}
 
 export function useGroupRtc({ socket, active, selfId, members }) {
   const [localStream, setLocalStream] = useState(null);
@@ -27,6 +55,20 @@ export function useGroupRtc({ socket, active, selfId, members }) {
   const micGainRef = useRef(1);
   const peersRef = useRef(new Map()); // peerId -> RTCPeerConnection
   const pendingIceRef = useRef(new Map()); // peerId -> RTCIceCandidateInit[]
+  const iceServersRef = useRef(DEFAULT_ICE_SERVERS);
+
+  useEffect(() => {
+    if (!active) return;
+    let mounted = true;
+    void loadIceServers().then((servers) => {
+      if (mounted && Array.isArray(servers) && servers.length > 0) {
+        iceServersRef.current = servers;
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [active]);
 
   const closePeer = useCallback((peerId) => {
     const pc = peersRef.current.get(peerId);
@@ -52,7 +94,7 @@ export function useGroupRtc({ socket, active, selfId, members }) {
       const existing = peersRef.current.get(peerId);
       if (existing) return existing;
 
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
       peersRef.current.set(peerId, pc);
 
       const stream = localStreamRef.current;

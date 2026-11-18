@@ -16,6 +16,7 @@ import TimelineReplayPlayer from './TimelineReplayPlayer';
 import VideoLayoutModal from './VideoLayoutModal';
 import RoundComparisonCard from './RoundComparisonCard';
 import QaResultCard from './QaResultCard';
+import ShareSessionModal from './ShareSessionModal';
 import MiniAudioPlayer from './ui/MiniAudioPlayer';
 import GeminiCooldownButton from './ui/GeminiCooldownButton';
 import { SkeletonVideoMerge } from './ui/Skeleton';
@@ -68,6 +69,8 @@ export default function GroupSummaryView({
   const [historySavedMsg, setHistorySavedMsg] = useState('');
   const [cloudUploading, setCloudUploading] = useState(false);
   const [cloudUploaded, setCloudUploaded] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareMeta, setShareMeta] = useState({ shareId: '', isPublic: false });
 
   useEffect(() => {
     let active = true;
@@ -845,6 +848,16 @@ export default function GroupSummaryView({
               </button>
             )}
 
+            {user && savedSessionId && (
+              <button
+                type="button"
+                onClick={() => setShareModalOpen(true)}
+                className="rounded-lg bg-ink px-4 py-2 text-xs font-semibold text-paper transition hover:bg-ink/90 cursor-pointer"
+              >
+                แชร์ผลการซ้อม (LINE / X / ลิงก์)
+              </button>
+            )}
+
             {user && savedSessionId && mergedVideoUrl && (
               <button
                 type="button"
@@ -1386,6 +1399,23 @@ export default function GroupSummaryView({
         onConfirm={(chosenLayout) => {
           setLayoutModalOpen(false);
           void handleMergeAll(chosenLayout);
+        }}
+      />
+
+      <ShareSessionModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        sessionId={savedSessionId}
+        initialShareId={shareMeta.shareId}
+        initialIsPublic={shareMeta.isPublic}
+        deckName={room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม'}
+        isGroup
+        totalDurationSec={Math.floor(stats.totalDuration)}
+        avgWpm={stats.avgWpm}
+        avgEyeContactPct={stats.avgEye}
+        referralCode={user?.referralCode || ''}
+        onShareUpdated={(res) => {
+          setShareMeta({ shareId: res.shareId || '', isPublic: Boolean(res.isPublic) });
         }}
       />
     </div>

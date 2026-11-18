@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { recordGeminiCall, triggerGeminiCooldown } from './geminiRateLimit';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 function handleAuthExpired(res, hadToken) {
   if (res.status === 401 && hadToken && typeof window !== 'undefined') {
@@ -131,6 +131,29 @@ export async function deleteSessions(ids = null) {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.message || 'ลบประวัติการซ้อมไม่สำเร็จ');
+  }
+  return res.json();
+}
+
+export async function updateSessionShare(sessionId, isPublic) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/share`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isPublic: Boolean(isPublic) }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || 'อัปเดตสถานะการแชร์ไม่สำเร็จ');
+  }
+  return res.json();
+}
+
+export async function fetchPublicSession(shareId) {
+  const res = await fetch(`${API_BASE}/api/public/sessions/${encodeURIComponent(shareId)}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || 'ไม่พบลิงก์สรุปผลนี้ หรือเจ้าของปิดการแชร์แล้ว');
   }
   return res.json();
 }

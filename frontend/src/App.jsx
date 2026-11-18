@@ -6,6 +6,7 @@ import RehearsalStep from './components/RehearsalStep';
 import QaStep from './components/QaStep';
 import SummaryStep from './components/SummaryStep';
 import RemotePage from './components/RemotePage';
+import PublicSharePage from './components/PublicSharePage';
 import GroupLobbyStep from './components/GroupLobbyStep';
 import WalletModal from './components/WalletModal';
 import HistoryModal from './components/HistoryModal';
@@ -60,6 +61,16 @@ class AppErrorBoundary extends Component {
 }
 
 export default function App() {
+  const publicShareId =
+    typeof window !== 'undefined'
+      ? (() => {
+          const m = window.location.pathname.match(/^\/share\/([^/]+)\/?$/);
+          if (m?.[1]) return decodeURIComponent(m[1]).trim();
+          const q = new URLSearchParams(window.location.search).get('share');
+          return q ? q.trim() : '';
+        })()
+      : '';
+
   const remoteCode =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('remote')
@@ -580,6 +591,10 @@ export default function App() {
     };
   }, [step, deck?.name, rehearsalMode, audience, results]);
 
+  if (publicShareId) {
+    return <PublicSharePage shareId={publicShareId} />;
+  }
+
   if (remoteCode) {
     return <RemotePage code={remoteCode.trim().toUpperCase()} />;
   }
@@ -646,7 +661,16 @@ export default function App() {
       <AppErrorBoundary>
         <main className="flex-1">
         {historyOpen && (
-          <HistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
+          <HistoryModal
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            user={user}
+            onTokensChange={(tokenBalance) =>
+              setUser((prev) =>
+                prev && typeof tokenBalance === 'number' ? { ...prev, tokenBalance } : prev,
+              )
+            }
+          />
         )}
         <div className={historyOpen ? 'hidden' : ''}>
             {step === 'mode' && (
@@ -790,6 +814,11 @@ export default function App() {
             savedSessionId={savedSessionId}
             seriesId={soloSeriesId}
             onSavedSessionIdChange={setSavedSessionId}
+            onTokensChange={(tokenBalance) =>
+              setUser((prev) =>
+                prev && typeof tokenBalance === 'number' ? { ...prev, tokenBalance } : prev,
+              )
+            }
             onUpdateQaResults={setQaResults}
             onBack={() => setStep('rehearsal')}
             onReRecordSlide={(i) => {

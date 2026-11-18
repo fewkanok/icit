@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
+const SHARE_DAILY_BONUS = 1;
 const REFERRAL_BONUS = 10;
 const MAX_REFERRALS_PER_USER = 10;
 const MIN_SESSION_SEC_FOR_REFERRAL = 30;
@@ -234,6 +235,8 @@ export class SessionsService {
         roomCode: true,
         seriesId: true,
         roundNumber: true,
+        shareId: true,
+        isPublic: true,
         slideCount: true,
         totalDurationSec: true,
         avgWpm: true,
@@ -448,5 +451,166 @@ export class SessionsService {
 
     const result = await this.prisma.rehearsalSession.deleteMany({ where });
     return { ok: true, deletedCount: result.count };
+  }
+
+  private getBangkokDayKey(date: Date) {
+    return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  }
+
+  async setSessionShare(userId: string, sessionId: string, isPublic: boolean) {
+    const session = await this.prisma.rehearsalSession.findFirst({
+      where: {
+        id: sessionId,
+        OR: [{ userId }, { participants: { some: { userId } } }],
+      },
+      select: { id: true, shareId: true, isPublic: true },
+    });
+    if (!session) {
+      throw new NotFoundException('ไม่พบประวัติการซ้อมนี้');
+    }
+
+    const shareId = session.shareId || randomBytes(5).toString('hex');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.rehearsalSession.update({
+        where: { id: session.id },
+        data: { isPublic, shareId },
+        select: { id: true, shareId: true, isPublic: true },
+      });
+
+      let shareBonusAwarded = false;
+      let tokenBalance: number | undefined;
+
+      if (isPublic) {
+        const owner = await tx.user.findUnique({
+          where: { id: userId },
+          select: { id: true, tokenBalance: true, lastShareBonusAt: true },
+        });
+        if (owner) {
+          const now = new Date();
+          const lastDay = owner.lastShareBonusAt
+            ? this.getBangkokDayKey(owner.lastShareBonusAt)
+            : null;
+          const today = this.getBangkokDayKey(now);
+
+          if (lastDay !== today) {
+            const updatedUser = await tx.user.update({
+              where: { id: userId },
+              data: {
+                tokenBalance: { increment: SHARE_DAILY_BONUS },
+                lastShareBonusAt: now,
+              },
+              select: { tokenBalance: true },
+            });
+            await tx.tokenTransaction.create({
+              data: {
+                userId,
+                type: 'SHARE_BONUS',
+                amount: SHARE_DAILY_BONUS,
+                description: 'โบนัสแชร์สรุปผลการซ้อม (รายวัน)',
+              },
+            });
+            shareBonusAwarded = true;
+            tokenBalance = updatedUser.tokenBalance;
+          } else {
+            tokenBalance = owner.tokenBalance;
+          }
+        }
+      }
+
+      return { ...updated, shareBonusAwarded, tokenBalance, tokens: tokenBalance };
+    });
+
+    return result;
+  }
+
+  async getPublicSessionByShareId(shareId: string) {
+    const clean = String(shareId || '').trim();
+    if (!clean) {
+      throw new NotFoundException('ไม่พบลิงก์สรุปผลนี้');
+    }
+
+    const session = await this.prisma.rehearsalSession.findFirst({
+      where: { shareId: clean, isPublic: true },
+      select: {
+        id: true,
+        shareId: true,
+        deckName: true,
+        audience: true,
+        rehearsalMode: true,
+        isGroup: true,
+        roundNumber: true,
+        slideCount: true,
+        totalDurationSec: true,
+        avgWpm: true,
+        avgEyeContactPct: true,
+        overallScore: true,
+        videoPath: true,
+        slidesJson: true,
+        qaJson: true,
+        summaryJson: true,
+        createdAt: true,
+        user: {
+          select: {
+            name: true,
+            referralCode: true,
+          },
+        },
+        participants: {
+          select: {
+            id: true,
+            displayName: true,
+            role: true,
+            slideIndexes: true,
+            durationSec: true,
+            avgWpm: true,
+            avgEyeContactPct: true,
+            transcript: true,
+          },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('ไม่พบลิงก์สรุปผลนี้ หรือเจ้าของปิดการแชร์แล้ว');
+    }
+
+    let videoUrl: string | null = null;
+    if (session.videoPath) {
+      try {
+        const { client, hasServiceKey } = this.getStorageClient();
+        if (hasServiceKey) {
+          const { data } = await client.storage
+            .from(VIDEO_BUCKET)
+            .createSignedUrl(session.videoPath, 3600);
+          videoUrl = data?.signedUrl || null;
+        }
+      } catch {
+        videoUrl = null;
+      }
+    }
+
+    return {
+      id: session.id,
+      shareId: session.shareId,
+      deckName: session.deckName,
+      audience: session.audience,
+      rehearsalMode: session.rehearsalMode,
+      isGroup: session.isGroup,
+      roundNumber: session.roundNumber,
+      slideCount: session.slideCount,
+      totalDurationSec: session.totalDurationSec,
+      avgWpm: session.avgWpm,
+      avgEyeContactPct: session.avgEyeContactPct,
+      overallScore: session.overallScore,
+      slidesJson: session.slidesJson,
+      qaJson: session.qaJson,
+      summaryJson: session.summaryJson,
+      createdAt: session.createdAt,
+      ownerName: session.user?.name || 'ผู้ซ้อม',
+      referralCode: session.user?.referralCode || null,
+      participants: session.participants,
+      videoUrl,
+    };
   }
 }
