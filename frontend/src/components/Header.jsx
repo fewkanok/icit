@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { SkeletonBox } from './ui/Skeleton';
 import { ModeBadge } from './ui/StateViews';
 import { CoinsIcon, HistoryIcon, HomeIcon, MenuIcon, XIcon } from './ui/Icons';
 
@@ -14,6 +13,9 @@ export default function Header({
   step,
   user,
   authLoading,
+  signingIn = false,
+  authRetryNeeded = false,
+  onRetryAuth,
   onSignIn,
   onSignOut,
   onOpenWallet,
@@ -83,8 +85,11 @@ export default function Header({
 
         {/* Desktop Actions */}
         <div className="hidden items-center gap-2 sm:flex">
-          {authLoading ? (
-            <SkeletonBox className="h-9 w-28 rounded-lg" />
+          {authLoading || signingIn ? (
+            <div className="inline-flex min-h-[38px] items-center gap-2 rounded-xl border border-line bg-paper px-3.5 py-1.5 text-xs font-medium text-ink">
+              <span className="size-2 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+              <span>กำลังเข้าสู่ระบบ...</span>
+            </div>
           ) : user ? (
             <>
               <button
@@ -128,6 +133,14 @@ export default function Header({
                 ออกจากระบบ
               </button>
             </>
+          ) : authRetryNeeded ? (
+            <button
+              type="button"
+              onClick={onRetryAuth}
+              className="min-h-[40px] rounded-xl border border-accent/40 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent transition hover:bg-accent/15 cursor-pointer"
+            >
+              เชื่อมต่อบัญชีอีกครั้ง
+            </button>
           ) : (
             <button
               type="button"
@@ -167,8 +180,11 @@ export default function Header({
             </button>
           )}
 
-          {authLoading ? (
-            <SkeletonBox className="h-11 w-full rounded-xl" />
+          {authLoading || signingIn ? (
+            <div className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-line bg-paper px-4 text-sm font-medium text-ink">
+              <span className="size-2 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+              <span>กำลังเข้าสู่ระบบ...</span>
+            </div>
           ) : user ? (
             <>
               <div className="flex items-center justify-between rounded-xl bg-paper px-4 py-2.5">
@@ -214,6 +230,17 @@ export default function Header({
                 ออกจากระบบ
               </button>
             </>
+          ) : authRetryNeeded ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onRetryAuth?.();
+              }}
+              className="flex min-h-[48px] w-full items-center justify-center rounded-xl border border-accent/40 bg-accent/10 text-sm font-semibold text-accent cursor-pointer"
+            >
+              เชื่อมต่อบัญชีอีกครั้ง
+            </button>
           ) : (
             <button
               type="button"

@@ -136,6 +136,8 @@ export default function App() {
   const [rehearsalIndex, setRehearsalIndex] = useState(0); // หน้าสไลด์ที่จะซ้อม
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(Boolean(supabase));
+  const [signingIn, setSigningIn] = useState(false);
+  const [authRetryNeeded, setAuthRetryNeeded] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [linePdfLoading, setLinePdfLoading] = useState(null);
@@ -510,22 +512,48 @@ export default function App() {
       if (!session?.access_token) {
         if (active) {
           setUser(null);
+          setAuthRetryNeeded(false);
           setAuthLoading(false);
         }
         return;
       }
 
-      try {
-        const ref = localStorage.getItem('sq_ref') || undefined;
-        const dbUser = await fetchMe(ref);
-        if (active) setUser(dbUser);
-        if (ref) localStorage.removeItem('sq_ref');
-      } catch (err) {
-        console.warn('[Auth] Sync user failed:', err);
-        if (active) setUser(null);
-      } finally {
-        if (active) setAuthLoading(false);
+      if (active) {
+        setAuthLoading(true);
+        setAuthRetryNeeded(false);
       }
+
+      const retryDelays = [1500, 3000, 5000];
+      let lastErr = null;
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        if (!active) return;
+        try {
+          const ref = localStorage.getItem('sq_ref') || undefined;
+          const dbUser = await fetchMe(ref);
+          if (active) {
+            setUser(dbUser);
+            setAuthRetryNeeded(false);
+          }
+          if (ref) localStorage.removeItem('sq_ref');
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < retryDelays.length) {
+            await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+          }
+        }
+      }
+
+      if (lastErr) {
+        console.warn('[Auth] Sync user failed:', lastErr);
+        if (active) {
+          // อย่าล้าง user เดิมทิ้งหากยังล็อกอิน Google ค้างอยู่ ให้ปุ่มลองเชื่อมต่อใหม่แทน
+          setAuthRetryNeeded(true);
+        }
+      }
+
+      if (active) setAuthLoading(false);
     };
 
     supabase.auth.getSession().then(({ data }) => {
@@ -543,16 +571,41 @@ export default function App() {
   }, []);
 
   const handleSignIn = async () => {
+    setSigningIn(true);
     try {
       await signInWithGoogle();
     } catch (err) {
+      setSigningIn(false);
       alert(err.message || 'ไม่สามารถเข้าสู่ระบบด้วย Google ได้');
+    }
+  };
+
+  const handleRetryAuth = async () => {
+    if (!supabase) return;
+    setAuthLoading(true);
+    setAuthRetryNeeded(false);
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (!data?.session?.access_token) {
+        setUser(null);
+        return;
+      }
+      const ref = localStorage.getItem('sq_ref') || undefined;
+      const dbUser = await fetchMe(ref);
+      setUser(dbUser);
+      if (ref) localStorage.removeItem('sq_ref');
+    } catch (err) {
+      console.warn('[Auth] Retry sync failed:', err);
+      setAuthRetryNeeded(true);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
   const handleSignOut = async () => {
     await signOut();
     setUser(null);
+    setAuthRetryNeeded(false);
   };
 
   useEffect(() => {
@@ -624,6 +677,9 @@ export default function App() {
         step={step}
         user={user}
         authLoading={authLoading}
+        signingIn={signingIn}
+        authRetryNeeded={authRetryNeeded}
+        onRetryAuth={handleRetryAuth}
         onSignIn={handleSignIn}
         onSignOut={handleSignOut}
         onOpenWallet={() => setWalletOpen(true)}
