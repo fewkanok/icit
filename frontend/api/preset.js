@@ -1,3 +1,5 @@
+import zlib from 'node:zlib';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -58,15 +60,39 @@ export default async function handler(req, res) {
       sl: slides,
     };
 
-    const encodedZ = Buffer.from(JSON.stringify(compactPayload), 'utf8').toString('base64url');
-    const rehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
+    const compressedBytes = zlib.deflateRawSync(
+      Buffer.from(JSON.stringify(compactPayload), 'utf8'),
+    );
+    const encodedZ = compressedBytes.toString('base64url');
+    const fullRehearsalUrl = `${appBaseUrl}/?z=${encodedZ}`;
+
+    // ย่อลิงก์ให้สั้นกระชับอัตโนมัติ (Fallback เป็น fullRehearsalUrl หากเกิน 2.5 วินาที)
+    let shortUrl = fullRehearsalUrl;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const tinyRes = await fetch(
+        `https://tinyurl.com/api-create.php?url=${encodeURIComponent(fullRehearsalUrl)}`,
+        { signal: controller.signal },
+      );
+      clearTimeout(timer);
+      if (tinyRes.ok) {
+        const text = (await tinyRes.text()).trim();
+        if (text.startsWith('http')) {
+          shortUrl = text;
+        }
+      }
+    } catch {
+      // ใช้ fullRehearsalUrl แทนได้ทันที
+    }
 
     return res.status(200).json({
       ok: true,
       deckName,
       slideCount: slides.length,
-      rehearsalUrl,
-      message: `สร้างลิงก์เข้าห้องซ้อมสำเร็จ: ${rehearsalUrl}`,
+      rehearsalUrl: shortUrl,
+      fullRehearsalUrl,
+      message: `สร้างลิงก์เข้าห้องซ้อมสำเร็จ: ${shortUrl}`,
     });
   } catch (err) {
     return res.status(400).json({

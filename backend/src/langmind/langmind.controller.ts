@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { GoogleGenAI } from '@google/genai';
 import {
   BadRequestException,
   Body,
@@ -362,6 +363,110 @@ export class LangmindController {
           message: (err as Error)?.message || 'เกิดข้อผิดพลาดในการสตรีมไฟล์ PDF',
         });
       }
+    }
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Post('evaluate-voice')
+  async evaluateVoiceAnswer(
+    @Body()
+    body: {
+      audioBase64?: string;
+      mimeType?: string;
+      durationSec?: number;
+      question?: string;
+      deckTitle?: string;
+    },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey || !body?.audioBase64) {
+      return { ok: false, message: 'ไม่พบข้อมูลเสียงหรือ API Key' };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const questionText = String(body.question || 'จงอธิบายจุดเด่นและที่มาของโครงงานนี้').trim();
+    const deckTitle = String(body.deckTitle || 'โครงงานวิจัย').trim();
+    const durationSec = Math.max(1, Number(body.durationSec || 15));
+
+    const prompt = `คุณคือกรรมการสอบโครงงานระดับมหาวิทยาลัย
+หัวข้อสไลด์: "${deckTitle}"
+คำถามที่ถามผู้เรียน: "${questionText}"
+ความยาวเสียงที่พูด: ${durationSec} วินาที
+
+กรุณาฟังไฟล์เสียงคำตอบของผู้เรียนแล้วตอบกลับเป็น JSON เท่านั้น ตามโครงสร้างนี้:
+{
+  "transcript": "ถอดข้อความภาษาไทยที่ผู้เรียนพูดแบบคำต่อคำ (รวมคำติดปาก เช่น เอ่อ อ่า แบบว่า ถ้ามี)",
+  "score": 8,
+  "fillers": ["เอ่อ", "แบบว่า"],
+  "strengths": "จุดที่ตอบได้ดี กระชับ 1 ประโยค",
+  "improvement": "จุดที่ควรปรับปรุง 1 ประโยค",
+  "betterAnswer": "ตัวอย่างคำตอบที่คมชัดตามหลัก A-R-E (Answer-Reason-Evidence) ความยาว 2-3 ประโยค"
+}`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: body.mimeType || 'audio/mp4',
+                  data: body.audioBase64,
+                },
+              },
+              { text: prompt },
+            ],
+          },
+        ],
+      });
+
+      const raw = (response.text || '').trim();
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return { ok: true, ...parsed };
+      }
+      return { ok: false, message: 'ไม่สามารถแปลงผลลัพธ์ JSON ได้' };
+    } catch (err) {
+      return { ok: false, message: (err as Error)?.message || 'AI evaluation failed' };
+    }
+  }
+
+  @SkipThrottle()
+  @Get('latest-session')
+  async getLatestRehearsalSession() {
+    try {
+      const session = await this.prisma.rehearsalSession.findFirst({
+        orderBy: { createdAt: 'desc' },
+      });
+      if (!session) {
+        return { ok: false, message: 'ยังไม่มีประวัติการซ้อมในระบบ' };
+      }
+      return {
+        ok: true,
+        session: {
+          id: session.id,
+          deckName: session.deckName,
+          audience: session.audience,
+          rehearsalMode: session.rehearsalMode,
+          slideCount: session.slideCount,
+          totalDurationSec: session.totalDurationSec,
+          avgWpm: session.avgWpm,
+          avgEyeContactPct: session.avgEyeContactPct,
+          overallScore: session.overallScore,
+          slidesJson: session.slidesJson,
+          qaJson: session.qaJson,
+          summaryJson: session.summaryJson,
+          createdAt: session.createdAt,
+        },
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: (err as Error)?.message || 'ไม่สามารถดึงข้อมูลผลการซ้อมล่าสุดได้',
+      };
     }
   }
 
