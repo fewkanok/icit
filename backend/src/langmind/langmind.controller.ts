@@ -434,6 +434,88 @@ export class LangmindController {
     }
   }
 
+  @SkipThrottle()
+  @Post('context')
+  async saveUserContext(
+    @Body()
+    body: {
+      userId?: string;
+      deckName?: string;
+      summaryText?: string;
+    },
+  ) {
+    const userId = String(body?.userId || 'default')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .slice(-24);
+    const dbKey = `LM_CTX_${userId || 'default'}`;
+    const ctxData = {
+      userId,
+      deckName: String(body?.deckName || '').slice(0, 200),
+      summaryText: String(body?.summaryText || '').slice(0, 6000),
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.memoryStore.set(dbKey, {
+      data: ctxData as unknown as StoredLangmindPreset,
+      expiresAt: Date.now() + PRESET_TTL_MS,
+    });
+
+    await this.prisma.groupClip
+      .upsert({
+        where: { roomCode_slideIndex: { roomCode: dbKey, slideIndex: 0 } },
+        create: {
+          roomCode: dbKey,
+          slideIndex: 0,
+          memberId: 'langmind-ctx',
+          memberName: ctxData.deckName.slice(0, 40) || 'slide-context',
+          mimeType: 'application/json',
+          mediaData: Buffer.from('CTX'),
+          analysis: ctxData as unknown as object,
+        },
+        update: {
+          memberName: ctxData.deckName.slice(0, 40) || 'slide-context',
+          analysis: ctxData as unknown as object,
+          createdAt: new Date(),
+        },
+      })
+      .catch(() => {});
+
+    return { ok: true };
+  }
+
+  @SkipThrottle()
+  @Get('context/:userId')
+  async getUserContext(@Param('userId') rawUserId: string) {
+    const userId = String(rawUserId || 'default')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]/g, '')
+      .slice(-24);
+    const dbKey = `LM_CTX_${userId || 'default'}`;
+
+    const cached = this.memoryStore.get(dbKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ok: true, context: cached.data };
+    }
+
+    const record = await this.prisma.groupClip
+      .findUnique({
+        where: { roomCode_slideIndex: { roomCode: dbKey, slideIndex: 0 } },
+        select: { analysis: true },
+      })
+      .catch(() => null);
+
+    if (record?.analysis && typeof record.analysis === 'object') {
+      this.memoryStore.set(dbKey, {
+        data: record.analysis as unknown as StoredLangmindPreset,
+        expiresAt: Date.now() + PRESET_TTL_MS,
+      });
+      return { ok: true, context: record.analysis };
+    }
+
+    return { ok: false };
+  }
+
   private pruneExpiredMemory() {
     const now = Date.now();
     for (const [key, entry] of this.memoryStore.entries()) {

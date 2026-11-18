@@ -10,6 +10,30 @@ const DEFAULT_CHANNEL_ACCESS_TOKEN =
   'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
 const DEFAULT_RENDER_BACKEND = 'https://icit.onrender.com';
 const MAX_INLINE_PDF_BYTES = 150 * 1024 * 1024; // รองรับไฟล์ PDF ขนาดใหญ่ถึง 150 MB
+const userSlideContextMap = new Map();
+
+function buildBriefSlideSummary(fileName, cleanTitle, extractedPages, totalPdfPages) {
+  if (Array.isArray(extractedPages) && extractedPages.length > 0) {
+    const count = totalPdfPages || extractedPages.length;
+    const lines = extractedPages.map((p) => {
+      const shortText = String(p.text || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+      return `📌 หน้า ${p.page}: ${shortText}${p.text?.length > 140 ? '...' : ''}`;
+    });
+    return [
+      `📄 สรุปเนื้อหาคร่าวๆ จากไฟล์ "${fileName}" (${count} หน้า)`,
+      '',
+      ...lines,
+      '',
+      'เลือกดำเนินการต่อจากปุ่มด้านล่างได้เลยครับ 👇',
+    ]
+      .join('\n')
+      .slice(0, 4800);
+  }
+  return [
+    `📄 รับไฟล์ "${fileName}" (${cleanTitle}) เรียบร้อยแล้วครับ`,
+    'ระบบได้เตรียมห้องซ้อมพรีเซนต์สำหรับไฟล์ชุดนี้ไว้ให้แล้ว สามารถกดปุ่มด้านล่างเพื่อเข้าซ้อมบนเว็บ หรือสุ่มคำถามจากสไลด์ได้เลยครับ 👇',
+  ].join('\n\n');
+}
 
 export const maxDuration = 60;
 
@@ -400,7 +424,6 @@ export default async function handler(req, res) {
 
     let modified = false;
     const forwardEvents = [];
-    const pendingPdfCards = [];
 
     for (const ev of events) {
       // 1. เมื่อกดแอดเพื่อนใหม่ (follow) -> แสดงการ์ดบอก Flow 4 ขั้นตอน
@@ -439,21 +462,48 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ส่งเข้าสมองของ LangMind โดยตรง!
+        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ดึงเนื้อหาสไลด์จริงแนบส่งเข้าสมองของ LangMind โดยตรง!
         if (/^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(text)) {
           modified = true;
+          const userId = ev?.source?.userId || 'default';
+          let savedCtx = userSlideContextMap.get(userId);
+          if (!savedCtx) {
+            try {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 2500);
+              const ctxRes = await fetch(
+                `${renderBackendBase}/api/langmind/context/${encodeURIComponent(userId)}`,
+                { signal: controller.signal },
+              );
+              clearTimeout(timer);
+              if (ctxRes.ok) {
+                const json = await ctxRes.json();
+                if (json?.ok && json.context?.summaryText) {
+                  savedCtx = json.context;
+                  userSlideContextMap.set(userId, savedCtx);
+                }
+              }
+            } catch {
+              // ignore timeout
+            }
+          }
+
           const focusMode = text.includes('เทคนิค')
             ? 'หมวด [M] ระเบียบวิธีวิจัยและเทคนิค'
             : text.includes('ใช้งานจริง')
               ? 'หมวด [R] การวัดผลและการนำไปใช้งานจริง'
-              : 'เนื้อหาสำคัญในสไลด์หรือโครงสร้างสไลด์ที่เราเพิ่งคุยกัน';
+              : 'เนื้อหาสำคัญในสไลด์หรือโครงสร้างสไลด์';
+
+          const contextBlock = savedCtx?.summaryText
+            ? `นี่คือข้อมูลสไลด์ล่าสุดของผม (${savedCtx.deckName || 'สไลด์นำเสนอ'}):\n${savedCtx.summaryText}\n\n`
+            : '';
 
           forwardEvents.push({
             ...ev,
             message: {
               id: ev.message.id,
               type: 'text',
-              text: `ช่วยตั้งคำถามกรรมการสอบ 1 ข้อทันทีจากเนื้อหาสไลด์หรือโครงสร้างสไลด์ที่อยู่ในบทสนทนาก่อนหน้าของเรา (เน้น${focusMode}) โดยห้ามปฏิเสธหรือขอข้อมูลซ้ำ ให้ตั้งคำถามที่คมและท้าทายมา 1 ข้อเลย (ยังไม่ต้องเฉลยคำตอบ) พร้อมบอกให้ผมกดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ได้เลยครับ`,
+              text: `${contextBlock}ช่วยตั้งคำถามกรรมการสอบ 1 ข้อทันทีจากเนื้อหาสไลด์ข้างต้น (เน้น${focusMode}) โดยห้ามปฏิเสธหรือขอข้อมูลซ้ำ ให้ตั้งคำถามที่คมและท้าทายมา 1 ข้อเลย (ยังไม่ต้องเฉลยคำตอบ) พร้อมบอกให้ผมกดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ได้เลยครับ`,
             },
           });
           continue;
@@ -525,9 +575,8 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // 4. เมื่อผู้ใช้ส่งไฟล์สไลด์ .PDF ใน LINE (type === 'file') -> แกะข้อความทุกหน้าส่งเข้าสมองของ LangMind!
+      // 4. เมื่อผู้ใช้ส่งไฟล์สไลด์ .PDF ใน LINE (type === 'file') -> สรุปเนื้อหาคร่าวๆ แล้วส่งการ์ด 2 ปุ่มตามหลังทันที!
       if (ev?.type === 'message' && ev?.message?.type === 'file' && channelAccessToken) {
-        modified = true;
         const messageId = ev.message.id;
         const fileName = String(ev.message.fileName || 'slides.pdf').trim();
         const fileSize = Number(ev.message.fileSize || 0);
@@ -539,7 +588,6 @@ export default async function handler(req, res) {
         let totalPdfPages = 0;
         const normalizedKey = cleanTitle.replace(/\s+/g, '');
 
-        // หากเป็นไฟล์ขนาดใหญ่มาก (>30MB) หรือใช้เวลานานเกิน 7 วินาที ให้ระวัง replyToken 30 วินาทีของ LINE หมดอายุ
         if (KNOWN_LARGE_PDF_CACHE[normalizedKey]) {
           extractedPages = KNOWN_LARGE_PDF_CACHE[normalizedKey];
           totalPdfPages = extractedPages.length;
@@ -586,31 +634,50 @@ export default async function handler(req, res) {
               extractedPages.map((p) => `- หน้าที่ ${p.page}: ${p.text}`).join('\n')
             : `ชื่อไฟล์สไลด์: "${cleanTitle}" (ขนาด ${(fileSize / (1024 * 1024)).toFixed(1)} MB)`;
 
-        const pdfPromptToLangMind = [
-          `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" เข้ามาในแชท LINE ครับ`,
-          extractedTextBlock,
-          `[คำสั่งสำคัญในการตอบกลับ]:`,
-          `1. กรุณาสรุปข้อมูลสำคัญของไฟล์ PDF ที่ส่งมานี้ (ภาพรวมเนื้อหา และสรุปประเด็นสำคัญ + บทพูดแนะนำของแต่ละหน้า) ออกมาเป็นข้อความในแชท LINE ให้ผมอ่านได้ทันที`,
-          `2. ห้ามใส่ลิงก์ URL (https://...) ลงในข้อความตอบกลับนี้ และห้ามเรียกใช้ create_downloadable_file หรือ createRehearsalPreset เพราะระบบจะส่งการ์ดปุ่มกดเข้าห้องซ้อมพรีเซนต์และปุ่มสุ่มคำถามจากสไลด์ตามไปให้ผู้ใช้โดยอัตโนมัติครับ`,
-        ].join('\n\n');
+        const userId = ev?.source?.userId || 'default';
+        const ctxPayload = {
+          userId,
+          deckName: cleanTitle,
+          summaryText: extractedTextBlock,
+        };
+        userSlideContextMap.set(userId, ctxPayload);
 
-        if (ev?.source?.userId && pdfRehearsalUrl.length <= 990) {
-          pendingPdfCards.push({
-            userId: ev.source.userId,
-            title: cleanTitle,
-            pageCount: totalPdfPages || extractedPages.length || 5,
-            rehearsalUrl: pdfRehearsalUrl,
+        // บันทึกบริบทสไลด์ลง Backend เพื่อให้กด "สุ่มคำถามจากสไลด์" ผ่าน LangMind ได้แม่นยำเสมอ
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          await fetch(`${renderBackendBase}/api/langmind/context`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ctxPayload),
+            signal: controller.signal,
           });
+          clearTimeout(timer);
+        } catch {
+          // ignore if backend slow
         }
 
-        forwardEvents.push({
-          ...ev,
-          message: {
-            id: messageId,
-            type: 'text',
-            text: pdfPromptToLangMind,
-          },
-        });
+        const briefSummaryText = buildBriefSlideSummary(
+          fileName,
+          cleanTitle,
+          extractedPages,
+          totalPdfPages,
+        );
+
+        const messagesToSend = [{ type: 'text', text: briefSummaryText }];
+        if (pdfRehearsalUrl.length <= 990) {
+          messagesToSend.push(
+            buildPdfActionFlex({
+              title: cleanTitle,
+              pageCount: totalPdfPages || extractedPages.length || 5,
+              rehearsalUrl: pdfRehearsalUrl,
+            }),
+          );
+        }
+
+        if (ev.replyToken) {
+          await replyToLine(channelAccessToken, ev.replyToken, messagesToSend);
+        }
         continue;
       }
 
@@ -643,12 +710,6 @@ export default async function handler(req, res) {
     });
 
     const respText = await forwardRes.text().catch(() => '');
-
-    // ส่งการ์ดปุ่มกด (เข้าห้องซ้อมพรีเซนต์ + สุ่มคำถามจากสไลด์) ตามหลังข้อความสรุปของ LangMind ทันที
-    for (const card of pendingPdfCards) {
-      await pushToLine(channelAccessToken, card.userId, [buildPdfActionFlex(card)]);
-    }
-
     return res.status(200).send(respText || 'OK');
   } catch (err) {
     console.error('[LINE Webhook Bridge] Error:', err);
