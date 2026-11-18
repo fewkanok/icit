@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+import 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const DEFAULT_LANGMIND_WEBHOOK =
   'https://langmind.in.th/api/line/04d2c27e-1b6f-4bd8-b40d-e31d3ef74d81/webhook';
@@ -7,7 +9,7 @@ const DEFAULT_CHANNEL_SECRET = 'abcc69d60732c52f3718d77f1aebb3d5';
 const DEFAULT_CHANNEL_ACCESS_TOKEN =
   'Ut5nqy2fKiH73ri7hOY9AaIfb4V3v7cQDq81I+ZLzEOLunkm9VWepfcqjz6kal9CWg4QN7n+6Kl6pyG4D3EiWKJEc+px/lLu9Up69LwJ/Sakqj/frsRnfBvxaMBgvTDQE+gt5JlhGdh9Y1R90nQhAwdB04t89/1O/w1cDnyilFU=';
 const DEFAULT_RENDER_BACKEND = 'https://icit.onrender.com';
-const MAX_INLINE_PDF_BYTES = 25 * 1024 * 1024;
+const MAX_INLINE_PDF_BYTES = 150 * 1024 * 1024; // รองรับไฟล์ PDF ขนาดใหญ่ถึง 150 MB
 
 export const maxDuration = 60;
 
@@ -289,8 +291,6 @@ function buildFlowGuideFlex(appBaseUrl) {
 
 async function extractPdfPagesText(pdfBuffer) {
   try {
-    await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const uint8 = new Uint8Array(pdfBuffer);
     const loadingTask = pdfjs.getDocument({
       data: uint8,
@@ -300,7 +300,7 @@ async function extractPdfPagesText(pdfBuffer) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 12);
+    const maxPages = Math.min(doc.numPages, 15);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -312,7 +312,7 @@ async function extractPdfPagesText(pdfBuffer) {
       if (text) {
         pages.push({
           page: i,
-          text: text.slice(0, 350),
+          text: text.slice(0, 400),
         });
       }
     }
@@ -638,14 +638,14 @@ export default async function handler(req, res) {
             ? 'หมวด [M] ระเบียบวิธีวิจัยและเทคนิค'
             : text.includes('ใช้งานจริง')
               ? 'หมวด [R] การวัดผลและการนำไปใช้งานจริง'
-              : 'เนื้อหาสำคัญในสไลด์หรือโปรเจกต์';
+              : 'เนื้อหาสำคัญในสไลด์หรือโครงสร้างสไลด์ที่เราเพิ่งคุยกัน';
 
           forwardEvents.push({
             ...ev,
             message: {
               id: ev.message.id,
               type: 'text',
-              text: `ช่วยตั้งคำถามกรรมการสอบ 1 ข้อที่เจาะจงจากเนื้อหาสไลด์/โปรเจกต์ที่อยู่ในบทสนทนาก่อนหน้าของเรา (เน้น${focusMode}) เพื่อทดสอบผมเสมือนอยู่ในห้องสอบจริง โดยถามแค่คำถามเดียวสั้นๆ คมๆ (ยังไม่ต้องเฉลยคำตอบ) และบอกให้ผมกดปุ่มไมโครโฟนอัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ในแชท LINE ได้เลยครับ`,
+              text: `ช่วยตั้งคำถามกรรมการสอบ 1 ข้อทันทีจากเนื้อหาสไลด์หรือโครงสร้างสไลด์ที่อยู่ในบทสนทนาก่อนหน้าของเรา (เน้น${focusMode}) โดยห้ามปฏิเสธหรือขอข้อมูลซ้ำ ให้ตั้งคำถามที่คมและท้าทายมา 1 ข้อเลย (ยังไม่ต้องเฉลยคำตอบ) พร้อมบอกให้ผมกดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ได้เลยครับ`,
             },
           });
           continue;
@@ -732,7 +732,7 @@ export default async function handler(req, res) {
         if (isPdf && (!fileSize || fileSize <= MAX_INLINE_PDF_BYTES)) {
           try {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 6500);
+            const timer = setTimeout(() => controller.abort(), 25000);
             const contentRes = await fetch(
               `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
               {
@@ -775,8 +775,10 @@ export default async function handler(req, res) {
         const pdfPromptToLangMind = [
           `ผมส่งไฟล์สไลด์ PDF ชื่อ "${fileName}" เข้ามาในแชท LINE ครับ`,
           extractedTextBlock,
-          `กรุณาอ่านเนื้อหาสไลด์ชุดนี้แล้วสรุปโครงสร้างสไลด์และร่างบทพูดแนะนำให้ผมตามขั้นตอนของคุณ และแนบลิงก์เข้าห้องซ้อมพรีเซนต์ที่เชื่อมกับไฟล์ PDF ชุดนี้ไว้ท้ายข้อความด้วยครับ: ${pdfRehearsalUrl}`,
-          `พร้อมแจ้งท้ายข้อความว่า หากต้องการซ้อมตอบคำถามจากสไลด์ชุดนี้ ให้พิมพ์ว่า "สุ่มคำถามจากสไลด์" ได้เลยครับ`,
+          `[คำสั่งสำคัญในการตอบกลับ]:`,
+          `1. กรุณาสรุปข้อมูลสำคัญของไฟล์ PDF ที่ส่งมานี้ (ภาพรวมเนื้อหา และสรุปประเด็นสำคัญ + บทพูดแนะนำของแต่ละหน้า) ออกมาเป็นข้อความในแชท LINE ให้ผมอ่านได้ทันที (ห้ามเรียกใช้ create_downloadable_file และห้ามตอบสั้นๆ แค่ว่าสร้างไฟล์แล้ว โดยไม่แสดงสรุปเนื้อหาในแชท)`,
+          `2. แนบลิงก์เข้าห้องซ้อมพรีเซนต์ที่เชื่อมกับไฟล์ PDF ชุดนี้ไว้ท้ายข้อความด้วยครับ: ${pdfRehearsalUrl}`,
+          `3. แจ้งท้ายข้อความว่า หากต้องการซ้อมตอบคำถามจากเนื้อหาไฟล์นี้ ให้พิมพ์ว่า "สุ่มคำถามจากสไลด์" ได้เลยครับ`,
         ].join('\n\n');
 
         forwardEvents.push({
