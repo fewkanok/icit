@@ -434,42 +434,6 @@ export class LangmindController {
     }
   }
 
-  @SkipThrottle()
-  @Get('latest-session')
-  async getLatestRehearsalSession() {
-    try {
-      const session = await this.prisma.rehearsalSession.findFirst({
-        orderBy: { createdAt: 'desc' },
-      });
-      if (!session) {
-        return { ok: false, message: 'ยังไม่มีประวัติการซ้อมในระบบ' };
-      }
-      return {
-        ok: true,
-        session: {
-          id: session.id,
-          deckName: session.deckName,
-          audience: session.audience,
-          rehearsalMode: session.rehearsalMode,
-          slideCount: session.slideCount,
-          totalDurationSec: session.totalDurationSec,
-          avgWpm: session.avgWpm,
-          avgEyeContactPct: session.avgEyeContactPct,
-          overallScore: session.overallScore,
-          slidesJson: session.slidesJson,
-          qaJson: session.qaJson,
-          summaryJson: session.summaryJson,
-          createdAt: session.createdAt,
-        },
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        message: (err as Error)?.message || 'ไม่สามารถดึงข้อมูลผลการซ้อมล่าสุดได้',
-      };
-    }
-  }
-
   private pruneExpiredMemory() {
     const now = Date.now();
     for (const [key, entry] of this.memoryStore.entries()) {

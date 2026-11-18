@@ -28,66 +28,10 @@ function readRawBody(req) {
   });
 }
 
-function buildQuickReplyItems() {
-  return {
-    items: [
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '❓ สุ่มคำถามจากสไลด์',
-          text: 'สุ่มคำถามจากสไลด์',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '📊 ดึงผลซ้อมล่าสุด (PDF)',
-          text: 'ดึงผลซ้อมล่าสุด',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '🔥 คำถามสายเทคนิค',
-          text: 'สุ่มคำถามสายเทคนิค',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '🚀 คำถามสายใช้งานจริง',
-          text: 'สุ่มคำถามสายใช้งานจริง',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '📄 วิธีส่งสไลด์/เนื้อหา',
-          text: 'วิธีส่งสไลด์',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'message',
-          label: '📋 ดูขั้นตอนใช้งาน',
-          text: 'เมนู',
-        },
-      },
-    ],
-  };
-}
-
 function buildFlowGuideFlex(appBaseUrl) {
   return {
     type: 'flex',
     altText: 'ขั้นตอนการใช้งาน ICIT Rehearsal Coach (4 ขั้นตอน)',
-    quickReply: buildQuickReplyItems(),
     contents: {
       type: 'bubble',
       size: 'mega',
@@ -170,14 +114,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'ซ้อมถาม-ตอบจากสไลด์ด้วยเสียงพูดใน LINE',
+                    text: 'AI สรุปโครงสร้างสไลด์ & ร่างบทพูด',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'กดสุ่มคำถามให้ LangMind ตั้งคำถามจากสไลด์ แล้วกดไมค์ใน LINE พูดตอบได้เลย',
+                    text: 'คำนวณความยาวบทพูดตามเวลาจริง (135 คำ/นาที) แยกตามผู้ฟัง',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -199,14 +143,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'เข้าเวทีซ้อมจริงบนเว็บ icit-gamma.vercel.app',
+                    text: 'ซ้อมถาม-ตอบจากสไลด์ด้วยเสียงพูดใน LINE',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'โหลดสไลด์ PDF + บทพูดอัตโนมัติ วัด WPM คำติดปาก เดดแอร์ และ Eye Contact',
+                    text: 'กดสุ่มคำถามให้ LangMind ตั้งคำถามจากสไลด์ แล้วกดไมค์ใน LINE พูดตอบได้เลย',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -228,14 +172,14 @@ function buildFlowGuideFlex(appBaseUrl) {
                 contents: [
                   {
                     type: 'text',
-                    text: 'ดึงรายงานสรุปผลการซ้อมเป็นไฟล์ PDF',
+                    text: 'เข้าเวทีซ้อมจริงบนเว็บ icit-gamma.vercel.app',
                     weight: 'bold',
                     size: 'sm',
                     color: '#1F1E1D',
                   },
                   {
                     type: 'text',
-                    text: 'กดดึงผลซ้อมล่าสุดจากหน้าสรุปมาเปิดอ่านและบันทึกเป็นเอกสาร PDF ขนาด A4',
+                    text: 'โหลดสไลด์ PDF + บทพูดอัตโนมัติ วัด WPM คำติดปาก เดดแอร์ และ Eye Contact',
                     size: 'xs',
                     color: '#666666',
                     wrap: true,
@@ -269,8 +213,8 @@ function buildFlowGuideFlex(appBaseUrl) {
             height: 'sm',
             action: {
               type: 'message',
-              label: '📊 ดึงผลซ้อมล่าสุดเป็นไฟล์ PDF',
-              text: 'ดึงผลซ้อมล่าสุด',
+              label: '📄 ดูตัวอย่างวิธีส่งสไลด์ / เนื้อหา',
+              text: 'วิธีส่งสไลด์',
             },
           },
           {
@@ -447,211 +391,6 @@ export default async function handler(req, res) {
                 '2. ส่งรูปภาพหน้าสไลด์ (JPG/PNG) เข้ามาในแชทให้ LangMind อ่านด้วย Vision & OCR',
                 '3. พิมพ์หัวข้อและเนื้อหาโปรเจกต์/งานวิจัยเข้ามาในแชทโดยตรง',
               ].join('\n'),
-              quickReply: buildQuickReplyItems(),
-            },
-          ]);
-          continue;
-        }
-
-        // คำสั่งดึงผลการซ้อมล่าสุดจากหน้าสรุปมาทำรายงาน PDF ให้ผู้ใช้อ่าน (ส่วนที่ 4)
-        if (
-          ev.replyToken &&
-          /^(ดึงผลซ้อม|ดึงผลซ้อมล่าสุด|สรุปผล|ผลซ้อม|รายงานผล|ขอผลซ้อม)$/i.test(text)
-        ) {
-          let dbSession = null;
-          try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 4500);
-            const sRes = await fetch(`${renderBackendBase}/api/langmind/latest-session`, {
-              signal: controller.signal,
-            });
-            clearTimeout(timer);
-            if (sRes.ok) {
-              const sJson = await sRes.json();
-              if (sJson?.ok && sJson.session) {
-                dbSession = sJson.session;
-              }
-            }
-          } catch (err) {
-            console.warn('[LINE Summary Report] Fetch latest-session failed:', err?.message);
-          }
-
-          const reportPayload = dbSession
-            ? {
-                deckName: dbSession.deckName || 'ชุดสไลด์ซ้อมนำเสนอ',
-                audience: dbSession.audience || 'teacher',
-                totalDurationSec: dbSession.totalDurationSec || 0,
-                avgWpm: dbSession.avgWpm || 0,
-                avgEyeContactPct: dbSession.avgEyeContactPct,
-                overallScore: dbSession.overallScore,
-                slideCount: dbSession.slideCount || 0,
-                slides: Array.isArray(dbSession.slidesJson)
-                  ? dbSession.slidesJson.slice(0, 10).map((s, i) => ({
-                      index: s.index ?? i,
-                      title: String(s.title || `หน้า ${i + 1}`).slice(0, 80),
-                      duration: s.duration || 0,
-                      wpm: s.wpm || 0,
-                      fillersCount: s.fillersCount || 0,
-                      deadAirCount: s.deadAirCount || 0,
-                      transcript: String(s.transcript || '').slice(0, 260),
-                    }))
-                  : [],
-                qa: Array.isArray(dbSession.qaJson)
-                  ? dbSession.qaJson.slice(0, 5).map((q) => ({
-                      question: String(q.question || '').slice(0, 140),
-                      answerTranscript: String(q.answerTranscript || '').slice(0, 220),
-                      score: q.score,
-                    }))
-                  : [],
-                summary: dbSession.summaryJson || null,
-              }
-            : {
-                deckName: 'รายงานสรุปผลการซ้อมพรีเซนต์ล่าสุด',
-                audience: 'teacher',
-                totalDurationSec: 275,
-                avgWpm: 135,
-                avgEyeContactPct: 78,
-                slideCount: 5,
-                slides: [],
-                qa: [],
-                summary: null,
-              };
-
-          const encodedReport = zlib
-            .deflateRawSync(Buffer.from(JSON.stringify(reportPayload), 'utf8'))
-            .toString('base64url');
-          const reportUrl = `${appBaseUrl}/api/line-report?d=${encodedReport}&print=1`;
-
-          const durMin = Math.floor((reportPayload.totalDurationSec || 0) / 60);
-          const durSec = Math.round((reportPayload.totalDurationSec || 0) % 60);
-          const durText = `${durMin}:${String(durSec).padStart(2, '0')} นาที`;
-          const eyeText =
-            reportPayload.avgEyeContactPct !== null &&
-            reportPayload.avgEyeContactPct !== undefined
-              ? `${reportPayload.avgEyeContactPct}%`
-              : 'ไม่ได้เปิดกล้อง';
-
-          await replyToLine(channelAccessToken, ev.replyToken, [
-            {
-              type: 'flex',
-              altText: `รายงานสรุปผลการซ้อม: ${reportPayload.deckName}`,
-              quickReply: buildQuickReplyItems(),
-              contents: {
-                type: 'bubble',
-                size: 'mega',
-                header: {
-                  type: 'box',
-                  layout: 'vertical',
-                  backgroundColor: '#1F1E1D',
-                  paddingAll: '16px',
-                  contents: [
-                    {
-                      type: 'text',
-                      text: 'REHEARSAL SUMMARY REPORT',
-                      color: '#D95D39',
-                      size: 'xxs',
-                      weight: 'bold',
-                    },
-                    {
-                      type: 'text',
-                      text: reportPayload.deckName,
-                      color: '#FFFFFF',
-                      size: 'md',
-                      weight: 'bold',
-                      wrap: true,
-                      margin: 'xs',
-                    },
-                  ],
-                },
-                body: {
-                  type: 'box',
-                  layout: 'vertical',
-                  spacing: 'sm',
-                  paddingAll: '16px',
-                  contents: [
-                    {
-                      type: 'box',
-                      layout: 'horizontal',
-                      backgroundColor: '#F7F5F0',
-                      cornerRadius: '8px',
-                      paddingAll: '12px',
-                      contents: [
-                        {
-                          type: 'box',
-                          layout: 'vertical',
-                          flex: 1,
-                          contents: [
-                            { type: 'text', text: 'เวลารวม', size: 'xxs', color: '#666666' },
-                            {
-                              type: 'text',
-                              text: durText,
-                              size: 'sm',
-                              weight: 'bold',
-                              color: '#1F1E1D',
-                            },
-                          ],
-                        },
-                        {
-                          type: 'box',
-                          layout: 'vertical',
-                          flex: 1,
-                          contents: [
-                            { type: 'text', text: 'ความเร็วพูด', size: 'xxs', color: '#666666' },
-                            {
-                              type: 'text',
-                              text: `${reportPayload.avgWpm || 135} คำ/นาที`,
-                              size: 'sm',
-                              weight: 'bold',
-                              color: '#1F1E1D',
-                            },
-                          ],
-                        },
-                        {
-                          type: 'box',
-                          layout: 'vertical',
-                          flex: 1,
-                          contents: [
-                            { type: 'text', text: 'Eye Contact', size: 'xxs', color: '#666666' },
-                            {
-                              type: 'text',
-                              text: eyeText,
-                              size: 'sm',
-                              weight: 'bold',
-                              color: '#1F1E1D',
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                    {
-                      type: 'text',
-                      text: `ดึงข้อมูลจากหน้าสรุปผลการซ้อม (${reportPayload.slides.length || reportPayload.slideCount || 5} สไลด์) พร้อมตารางคำพูดรายหน้าและผลคะแนน Q&A จัดทำเป็นเอกสารรายงาน PDF ขนาด A4 เรียบร้อยแล้วครับ`,
-                      size: 'xs',
-                      color: '#555555',
-                      wrap: true,
-                      margin: 'md',
-                    },
-                  ],
-                },
-                footer: {
-                  type: 'box',
-                  layout: 'vertical',
-                  spacing: 'sm',
-                  contents: [
-                    {
-                      type: 'button',
-                      style: 'primary',
-                      color: '#D95D39',
-                      height: 'sm',
-                      action: {
-                        type: 'uri',
-                        label: '📄 เปิดอ่าน / ดาวน์โหลดรายงาน PDF',
-                        uri: reportUrl.slice(0, 995),
-                      },
-                    },
-                  ],
-                },
-              },
             },
           ]);
           continue;
