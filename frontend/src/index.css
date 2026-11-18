@@ -20,8 +20,14 @@ body {
   color: var(--color-ink);
   font-size: 16px;
   line-height: 1.6;
+  max-width: 100%;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 button:not(:disabled):active {

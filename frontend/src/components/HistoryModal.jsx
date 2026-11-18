@@ -186,7 +186,7 @@ export default function HistoryModal({ open, onClose, user = null, onTokensChang
   const aiSlides = Array.isArray(selected?.summaryJson?.slides) ? selected.summaryJson.slides : [];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 space-y-6">
+    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-6 sm:py-10 space-y-6">
       {/* แถบหัวข้อ */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -898,7 +898,7 @@ export default function HistoryModal({ open, onClose, user = null, onTokensChang
                   setQaPage(1);
                   handleSelect(s.id);
                 }}
-                className={`flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-paper cursor-pointer ${
+                className={`flex w-full flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-3.5 sm:px-5 sm:py-4 text-left transition hover:bg-paper cursor-pointer ${
                   isChecked ? 'bg-accent/5' : ''
                 }`}
               >

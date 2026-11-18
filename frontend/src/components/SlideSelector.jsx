@@ -74,7 +74,7 @@ export default function SlideSelector({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
         {slides.map((s, idx) => {
           const checked = selectedSet.has(idx);
           const isPreviewing = activeIndex === idx;

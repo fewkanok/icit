@@ -510,14 +510,14 @@ export default function RehearsalStep({
   const p = result ? pace(result.wpm) : null;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto w-full max-w-6xl px-3 py-5 sm:px-6 sm:py-8">
       {/* หน้าต่างกล้องลอย (สามารถคลิกลากไปวางได้ทุกจุดบนหน้าจอ) */}
       <FloatingCamera vision={vision} live={live} />
 
       {/* หน้าต่าง QR Code สำหรับเชื่อมรีโมตมือถือ */}
       {stageMode && qrModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-sm rounded-2xl border border-line bg-white p-6 shadow-xl text-center space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-2 sm:p-4 backdrop-blur-[2px]">
+          <div className="w-[95vw] sm:w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-2xl border border-line bg-white p-4 sm:p-6 shadow-xl text-center space-y-4">
             <div className="flex items-center justify-between border-b border-line pb-3 text-left">
               <div>
                 <h3 className="text-sm font-semibold text-ink">สแกน QR เพื่อใช้มือถือเป็นรีโมต</h3>
@@ -669,7 +669,7 @@ export default function RehearsalStep({
             </button>
 
             {showOptionsMenu && (
-              <div className="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-line bg-white p-3.5 shadow-lg space-y-2.5">
+              <div className="fixed inset-x-3 top-32 z-30 rounded-xl border border-line bg-white p-3.5 shadow-lg space-y-2.5 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-80">
                 <p className="px-1 text-xs font-semibold text-muted">ตัวเลือกห้องซ้อม</p>
                 {stageMode ? (
                   <button
@@ -743,22 +743,24 @@ export default function RehearsalStep({
         ))}
       </div>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_360px]">
-        <SlideViewer
-          slides={deck.slides}
-          index={index}
-          onIndexChange={(nextIdx) => {
-            if (isContinuous && live && nextIdx === index + 1) {
-              void handleContinuousNext();
-            } else if (!live) {
-              setIndex(nextIdx);
-            }
-          }}
-          locked={live && !isContinuous}
-          laser={laser}
-        />
+      <div className="mt-6 sm:mt-8 grid gap-6 sm:gap-8 lg:grid-cols-[1fr_360px]">
+        <div className="min-w-0">
+          <SlideViewer
+            slides={deck.slides}
+            index={index}
+            onIndexChange={(nextIdx) => {
+              if (isContinuous && live && nextIdx === index + 1) {
+                void handleContinuousNext();
+              } else if (!live) {
+                setIndex(nextIdx);
+              }
+            }}
+            locked={live && !isContinuous}
+            laser={laser}
+          />
+        </div>
 
-        <aside className="flex flex-col rounded-xl border border-line bg-white">
+        <aside className="flex min-w-0 flex-col rounded-xl border border-line bg-white">
           <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
             <span className="text-sm font-medium">หน้า {index + 1}</span>
             {live ? (

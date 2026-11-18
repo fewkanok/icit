@@ -591,7 +591,7 @@ export default function GroupSummaryView({
   const avgPace = pace(totals.wpm);
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 space-y-6">
+    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-6 sm:py-10 space-y-6">
       {/* หัวข้อ */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -717,7 +717,7 @@ export default function GroupSummaryView({
             }}
           />
       {/* การ์ดสถิติหลัก 4 ช่อง (สไตล์เดียวกับซ้อมเดี่ยว) */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-line bg-white p-4">
           <p className="text-xs text-muted">เวลารวม</p>
           <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-ink">

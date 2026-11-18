@@ -392,7 +392,7 @@ export default function QaStep({
   const livePace = pace(liveWpm);
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-12">
+    <div className="mx-auto w-full max-w-2xl px-3 py-6 sm:px-6 sm:py-12">
       <FloatingCamera vision={vision} live={speech.listening} />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -508,7 +508,7 @@ export default function QaStep({
       {!loading && currentQ && (
         <div className="mt-8 space-y-5">
           {/* การ์ดคำถาม */}
-          <div className="rounded-2xl border border-line bg-white p-7">
+          <div className="rounded-2xl border border-line bg-white p-4 sm:p-7">
             <div className="flex items-center justify-between text-xs text-muted">
               <span className="rounded-full bg-paper border border-line px-2.5 py-0.5 font-mono text-[11px] font-medium text-ink">
                 คำถาม {currentIdx + 1} / {questions.length}
@@ -543,7 +543,7 @@ export default function QaStep({
           </div>
 
           {/* ช่องตอบคำถาม */}
-          <div className="rounded-2xl border border-line bg-white p-6 space-y-4 shadow-[0_1px_4px_rgba(27,27,26,0.05)]">
+          <div className="rounded-2xl border border-line bg-white p-4 sm:p-6 space-y-4 shadow-[0_1px_4px_rgba(27,27,26,0.05)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
                 <span className="text-sm font-semibold text-ink">คำตอบของคุณ</span>
@@ -625,12 +625,12 @@ export default function QaStep({
               <p className="text-[11px] text-muted">
                 คำตอบจะถูกบันทึกไว้ก่อน (เลือกให้ AI ตรวจคำแนะนำทีหลังได้ในหน้าสรุปผล)
               </p>
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={handleSkip}
                 disabled={evaluating}
-                className="rounded-lg border border-line px-4 py-2.5 text-sm text-muted transition hover:border-faint hover:text-ink disabled:opacity-40 cursor-pointer"
+                className="min-h-[44px] flex-1 sm:flex-initial rounded-lg border border-line px-4 py-2.5 text-sm text-muted transition hover:border-faint hover:text-ink disabled:opacity-40 cursor-pointer"
               >
                 {isLast || qaOvertime ? 'ข้ามและดูสรุปผล' : 'ข้ามข้อนี้'}
               </button>
@@ -638,7 +638,7 @@ export default function QaStep({
                 type="button"
                 onClick={handleSubmitAnswer}
                 disabled={!answerText.trim() || evaluating}
-                className="rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:opacity-40 cursor-pointer"
+                className="min-h-[44px] flex-1 sm:flex-initial rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:opacity-40 cursor-pointer"
               >
                 {evaluating
                   ? 'กำลังตรวจคำตอบทั้งหมด...'

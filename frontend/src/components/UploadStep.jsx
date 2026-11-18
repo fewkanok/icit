@@ -99,9 +99,9 @@ export default function UploadStep({
         : selectedIndices.filter((i) => i >= 0 && i < totalSlides).length || totalSlides;
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-10 px-6 py-12 lg:grid-cols-[320px_1fr] lg:gap-14">
+    <div className="mx-auto grid w-full max-w-6xl gap-6 px-3 py-6 sm:gap-10 sm:px-6 sm:py-12 lg:grid-cols-[320px_1fr] lg:gap-14">
       {/* ซ้าย: อัปโหลด */}
-      <section className="flex flex-col">
+      <section className="flex min-w-0 flex-col">
         <h1 className="text-2xl font-semibold tracking-tight">เตรียมสไลด์</h1>
         <p className="mt-2 text-sm leading-6 text-muted">
           อัปโหลดไฟล์ PDF หรือรูปสไลด์ ระบบจะแยกเป็นหน้า ให้คุณซ้อมพูดทีละหน้า
@@ -238,11 +238,11 @@ export default function UploadStep({
               ยังไม่มีไฟล์? ลองด้วยสไลด์แนะนำตัว
             </button>
           )}
-          <div className="mt-4 flex items-center justify-between text-xs text-faint">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs text-faint">
             <button
               type="button"
               onClick={onBackToMode}
-              className="text-muted underline-offset-4 hover:text-ink hover:underline cursor-pointer"
+              className="min-h-[36px] text-muted underline-offset-4 hover:text-ink hover:underline cursor-pointer"
             >
               ← เปลี่ยนโหมดซ้อม
             </button>
@@ -252,7 +252,7 @@ export default function UploadStep({
       </section>
 
       {/* ขวา: พรีวิวสไลด์ */}
-      <section>
+      <section className="min-w-0">
         {loading && !deck ? (
           <div className="space-y-4">
             <div className="aspect-video w-full rounded-xl border border-line bg-white p-6">

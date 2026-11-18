@@ -340,7 +340,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
   // ยังไม่ได้เข้าห้อง: หน้าสร้าง/เข้าร่วมห้อง
   if (!room) {
     return (
-      <div className="mx-auto max-w-lg px-6 py-14">
+      <div className="mx-auto w-full max-w-lg px-3 py-8 sm:px-6 sm:py-14">
         <button
           type="button"
           onClick={onBack}
@@ -349,16 +349,16 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
           ← กลับหน้าเลือกรูปแบบการซ้อม
         </button>
 
-        <div className="mt-5 rounded-2xl border border-line bg-white p-6 shadow-xs">
-          <div className="flex items-center justify-between gap-2">
-            <div>
+        <div className="mt-5 rounded-2xl border border-line bg-white p-4 sm:p-6 shadow-xs">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
               <h1 className="text-xl font-semibold text-ink">ซ้อมกลุ่ม (Lobby)</h1>
               <p className="mt-1 text-xs text-muted">
                 สร้างห้องแชร์ลิงก์ให้เพื่อน หรือใส่รหัสเพื่อเข้าห้องเดียวกัน
               </p>
             </div>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+              className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
                 connected ? 'bg-ok/10 text-ok' : 'bg-paper text-muted'
               }`}
             >
@@ -414,7 +414,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
                   <label className="block text-xs font-medium text-ink">จำนวนคนสูงสุดในห้อง</label>
                   <span className="text-[11px] text-muted">สูงสุด 6 คน</span>
                 </div>
-                <div className="mt-1.5 grid grid-cols-5 gap-1.5">
+                <div className="mt-1.5 grid grid-cols-3 gap-1.5 sm:grid-cols-5">
                   {[2, 3, 4, 5, 6].map((n) => (
                     <button
                       key={n}
@@ -528,7 +528,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
 
   // หน้า Lobby: แชร์ห้อง + สมาชิก + อัปโหลดสไลด์ + จัดคิวสไลด์
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-6 sm:py-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -552,11 +552,11 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
         {/* ซ้าย: รหัสห้อง + ลิงก์เชิญ + QR */}
-        <section className="rounded-2xl border border-line bg-white p-5 space-y-4 h-fit">
+        <section className="min-w-0 rounded-2xl border border-line bg-white p-4 sm:p-5 space-y-4 h-fit">
           <div>
             <p className="text-xs text-muted">รหัสห้อง</p>
-            <div className="mt-1.5 flex items-center justify-between gap-2 rounded-xl border border-line bg-paper/60 px-4 py-3">
-              <span className="font-mono text-2xl font-bold tracking-[0.2em] text-ink">
+            <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-paper/60 px-3.5 py-3 sm:px-4">
+              <span className="font-mono text-xl sm:text-2xl font-bold tracking-[0.15em] sm:tracking-[0.2em] text-ink">
                 {room.code}
               </span>
               <button
@@ -811,7 +811,7 @@ export default function GroupLobbyStep({ initialCode = '', user, onBack }) {
             )}
 
             {slides.length > 0 && (
-              <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
                 {slides.map((s, idx) => {
                   const ownerId = assignments[idx];
                   const owner = ownerId ? memberMap.get(ownerId) : null;

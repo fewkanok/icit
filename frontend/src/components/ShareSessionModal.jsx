@@ -104,11 +104,11 @@ export default function ShareSessionModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-2 sm:p-4 backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-line bg-white p-6 shadow-xl space-y-5"
+        className="w-[95vw] sm:w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl border border-line bg-white p-4 sm:p-6 shadow-xl space-y-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -182,7 +182,7 @@ export default function ShareSessionModal({
             {/* ปุ่มแชร์ตรงไปยังแพลตฟอร์ม */}
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted">แชร์ไปยังแอปโซเชียล</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={() => openSharePopup(lineShareHref)}

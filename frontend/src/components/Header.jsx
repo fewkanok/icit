@@ -26,20 +26,20 @@ export default function Header({
   const current = STEPS.findIndex((s) => s.key === step);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line/80 bg-white/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2.5">
+    <header className="sticky top-0 z-40 w-full border-b border-line/80 bg-white/85 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={() => {
               setMobileMenuOpen(false);
               onGoHome?.();
             }}
-            className="flex min-h-[44px] items-center gap-2 text-left transition hover:opacity-80 cursor-pointer"
+            className="flex min-h-[44px] min-w-0 items-center gap-2 text-left transition hover:opacity-80 cursor-pointer"
             title="กลับหน้าแรก"
           >
-            <span className="size-2.5 rounded-full bg-accent" />
-            <span className="text-base font-semibold tracking-tight text-ink">Test SWK</span>
+            <span className="size-2.5 shrink-0 rounded-full bg-accent" />
+            <span className="truncate text-sm sm:text-base font-semibold tracking-tight text-ink">Test SWK</span>
           </button>
           {step === 'group' && <ModeBadge mode="group" />}
           {step !== 'mode' && step !== 'group' && <ModeBadge mode="solo" />}

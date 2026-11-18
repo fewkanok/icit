@@ -181,8 +181,8 @@ export default function VideoLayoutModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4 backdrop-blur-xs">
-      <div className="animate-fade-up w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-5 shadow-2xl space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4 backdrop-blur-xs">
+      <div className="animate-fade-up w-[95vw] sm:w-full max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 sm:p-5 shadow-2xl space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold text-ink">จัดวางตำแหน่งสไลด์และกล้องก่อนสร้างวิดีโอ</h3>

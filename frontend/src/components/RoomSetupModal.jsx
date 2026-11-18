@@ -28,13 +28,13 @@ function TimePicker({ label, value, options, maxMinutes, onChange }) {
         <p className="text-xs font-medium text-muted">{label}</p>
         <span className="text-[11px] text-faint">สูงสุด {maxMinutes} นาที</span>
       </div>
-      <div className="mt-2 grid grid-cols-4 gap-1.5">
+      <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {options.map((t) => (
           <button
             key={t.value}
             type="button"
             onClick={() => onChange(t.value)}
-            className={`rounded-lg border px-2 py-2 text-xs transition cursor-pointer ${
+            className={`min-h-[40px] rounded-lg border px-2 py-2 text-xs transition cursor-pointer ${
               value === t.value
                 ? 'border-ink bg-ink text-paper font-medium'
                 : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
@@ -83,8 +83,8 @@ export default function RoomSetupModal({
   const [step, setStep] = useState(1);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 p-0 sm:p-4 backdrop-blur-[2px]">
-      <div className="animate-fade-up w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 sm:p-7 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-2 sm:p-4 backdrop-blur-[2px]">
+      <div className="animate-fade-up w-[95vw] sm:w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 sm:p-7 shadow-2xl space-y-5 sm:space-y-6">
         <div className="flex items-start justify-between border-b border-line pb-4">
           <div>
             <span className="inline-block rounded-full bg-paper border border-line px-2.5 py-0.5 text-[11px] font-medium text-muted">
@@ -113,7 +113,7 @@ export default function RoomSetupModal({
             {onRehearsalModeChange && (
               <div>
                 <p className="text-xs font-semibold text-ink">1. รูปแบบการซ้อม</p>
-                <div className="mt-2.5 grid grid-cols-2 gap-3">
+                <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
                   <button
                     type="button"
                     onClick={() => onRehearsalModeChange('per_slide')}
@@ -148,13 +148,13 @@ export default function RoomSetupModal({
 
             <div>
               <p className="text-xs font-semibold text-ink">{onRehearsalModeChange ? '2. ' : '1. '}คนฟังคือใคร</p>
-              <div className="mt-2.5 grid grid-cols-3 gap-2.5">
+              <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
                 {AUDIENCES.map((a) => (
                   <button
                     key={a.id}
                     type="button"
                     onClick={() => onAudienceChange(a.id)}
-                    className={`rounded-xl border px-3 py-3 text-xs transition cursor-pointer ${
+                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-xs transition cursor-pointer ${
                       audience === a.id
                         ? 'border-ink bg-ink text-paper font-semibold'
                         : 'border-line bg-white text-muted hover:border-faint hover:text-ink'
@@ -167,7 +167,7 @@ export default function RoomSetupModal({
             </div>
           </div>
         ) : (
-          <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="space-y-5">
             <div className="rounded-xl border border-line bg-paper/50 p-4 space-y-4">
               <p className="text-xs font-semibold text-ink">เป้าหมายเวลา</p>
               <TimePicker
@@ -188,10 +188,10 @@ export default function RoomSetupModal({
 
             <div className="space-y-2.5">
               <p className="text-xs font-semibold text-ink">อุปกรณ์และตัวเลือกเสริม</p>
-              <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
-                <div>
-                  <p className="text-xs font-medium text-ink">สุ่มถามแทรกระหว่างซ้อม (-1 Token/คำถาม)</p>
-                  <p className="text-[11px] text-muted">มีคำถามแทรกสั้นๆ หลังพูดบางสไลด์ (ตรวจคำตอบ -1 Token)</p>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper px-3.5 py-3 sm:px-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-ink break-words">สุ่มถามแทรกระหว่างซ้อม (-1 Token/คำถาม)</p>
+                  <p className="text-[11px] text-muted break-words">มีคำถามแทรกสั้นๆ หลังพูดบางสไลด์ (ตรวจคำตอบ -1 Token)</p>
                 </div>
                 <ToggleSwitch
                   checked={interruptEnabled}
@@ -201,10 +201,10 @@ export default function RoomSetupModal({
               </div>
 
               {onCameraToggle && (
-                <div className="flex items-center justify-between rounded-xl border border-line bg-paper px-4 py-3">
-                  <div>
-                    <p className="text-xs font-medium text-ink">เปิดกล้องเช็กสายตา & อัดวิดีโอ</p>
-                    <p className="text-[11px] text-muted">เปิดต่อเนื่องอัตโนมัติทั้งช่วงซ้อมพูดและช่วงถาม-ตอบ</p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper px-3.5 py-3 sm:px-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-ink break-words">เปิดกล้องเช็กสายตา & อัดวิดีโอ</p>
+                    <p className="text-[11px] text-muted break-words">เปิดต่อเนื่องอัตโนมัติทั้งช่วงซ้อมพูดและช่วงถาม-ตอบ</p>
                   </div>
                   <ToggleSwitch
                     checked={cameraEnabled}
@@ -217,11 +217,11 @@ export default function RoomSetupModal({
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-line pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
           <button
             type="button"
             onClick={step === 1 ? onClose : () => setStep(1)}
-            className="rounded-lg border border-line px-4 py-2.5 text-sm text-muted hover:border-faint hover:text-ink cursor-pointer"
+            className="min-h-[44px] rounded-lg border border-line px-4 py-2.5 text-sm text-muted hover:border-faint hover:text-ink cursor-pointer"
           >
             {step === 1 ? 'ยกเลิก' : '← ย้อนกลับ'}
           </button>
@@ -229,7 +229,7 @@ export default function RoomSetupModal({
             <button
               type="button"
               onClick={() => setStep(2)}
-              className="rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent/90 cursor-pointer"
+              className="min-h-[44px] rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent/90 cursor-pointer"
             >
               ถัดไป →
             </button>
@@ -237,7 +237,7 @@ export default function RoomSetupModal({
             <button
               type="button"
               onClick={onConfirm}
-              className="rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent/90 cursor-pointer"
+              className="min-h-[44px] rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent/90 cursor-pointer"
             >
               {confirmLabel}
             </button>

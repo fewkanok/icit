@@ -73,14 +73,14 @@ export default function GroupAssignModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="animate-fade-up flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl"
+        className="animate-fade-up flex max-h-[90vh] w-[95vw] sm:w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-line px-6 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-6 sm:py-4">
           <div>
             <h2 className="text-base font-semibold text-ink">จัดคิวสไลด์ให้สมาชิก</h2>
             <p className="mt-0.5 text-xs text-muted">
@@ -96,13 +96,13 @@ export default function GroupAssignModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6 space-y-5">
           {/* แถบกำหนดช่วงหน้าแบบเร็ว */}
           <form
             onSubmit={handleApplyRange}
             className="flex flex-wrap items-end gap-2.5 rounded-xl border border-line bg-paper/60 p-3.5"
           >
-            <div className="min-w-[140px] flex-1">
+            <div className="min-w-0 w-full sm:w-auto sm:flex-1">
               <label className="block text-[11px] font-medium text-muted">สมาชิก</label>
               <select
                 value={rangeMemberId}
@@ -200,7 +200,7 @@ export default function GroupAssignModal({
           </div>
 
           {/* กริดสไลด์ */}
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
             {slides.map((s, idx) => {
               const ownerId = draft[idx];
               const owner = ownerId ? memberMap.get(ownerId) : null;

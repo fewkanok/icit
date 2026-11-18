@@ -35,7 +35,7 @@ export default function MiniAudioPlayer({ src, downloadName = '' }) {
   const pct = duration > 0 ? Math.min(100, Math.round((currentTime / duration) * 100)) : 0;
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-2 rounded-full bg-paper px-3 py-1.5 shadow-2xs">
+    <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-paper px-3 py-1.5 shadow-2xs">
       <audio
         ref={audioRef}
         src={src}
@@ -78,7 +78,7 @@ export default function MiniAudioPlayer({ src, downloadName = '' }) {
           el.currentTime = ratio * duration;
           setCurrentTime(el.currentTime);
         }}
-        className="h-1.5 w-24 sm:w-28 cursor-pointer overflow-hidden rounded-full bg-line"
+        className="h-1.5 w-16 sm:w-28 cursor-pointer overflow-hidden rounded-full bg-line"
         title="คลิกเพื่อกรอเสียง"
       >
         <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />

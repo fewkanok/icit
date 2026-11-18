@@ -3,14 +3,16 @@ import { useEffect, useState } from 'react';
 function SampleSlide({ slide, index }) {
   const points = Array.isArray(slide.points) ? slide.points : [];
   return (
-    <div className="flex h-full flex-col justify-center bg-white px-[8%]">
-      <p className="font-mono text-xs text-faint">{String(index + 1).padStart(2, '0')}</p>
-      <h3 className="mt-3 text-2xl font-semibold tracking-tight md:text-3xl">{slide.title}</h3>
-      <ul className="mt-6 space-y-2.5 text-[15px] text-muted md:text-base">
+    <div className="flex h-full flex-col justify-center overflow-y-auto bg-white px-4 py-3 sm:px-[8%] sm:py-4">
+      <p className="font-mono text-[10px] sm:text-xs text-faint">{String(index + 1).padStart(2, '0')}</p>
+      <h3 className="mt-1 sm:mt-3 text-base sm:text-2xl md:text-3xl font-semibold tracking-tight break-words">
+        {slide.title}
+      </h3>
+      <ul className="mt-2 sm:mt-6 space-y-1 sm:space-y-2.5 text-xs sm:text-[15px] md:text-base text-muted">
         {points.map((p, idx) => (
-          <li key={`${idx}-${p}`} className="flex gap-3">
-            <span className="mt-[0.7em] h-px w-3 shrink-0 bg-ink/40" />
-            {p}
+          <li key={`${idx}-${p}`} className="flex gap-2 sm:gap-3 break-words">
+            <span className="mt-[0.65em] h-px w-2.5 sm:w-3 shrink-0 bg-ink/40" />
+            <span className="min-w-0 break-words">{p}</span>
           </li>
         ))}
       </ul>
@@ -67,11 +69,11 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
       </div>
 
       {total > 0 && !hideNav && (
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex items-center justify-between gap-2">
           <button
             onClick={() => go(index - 1)}
             disabled={locked || index === 0}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-black/[0.04] hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-black/[0.04] hover:text-ink disabled:pointer-events-none disabled:opacity-30 cursor-pointer"
           >
             <Arrow dir="prev" /> ก่อนหน้า
           </button>
@@ -81,7 +83,7 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
           <button
             onClick={() => go(index + 1)}
             disabled={locked || index === total - 1}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-black/[0.04] hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+            className="flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted transition hover:bg-black/[0.04] hover:text-ink disabled:pointer-events-none disabled:opacity-30 cursor-pointer"
           >
             ถัดไป <Arrow dir="next" />
           </button>
@@ -90,8 +92,8 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
 
       {slide?.script && (
         <div className="mt-4 rounded-xl border border-line bg-white p-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-ink">
                 บทพูดแนะนำ (หน้า {index + 1})
               </span>
@@ -108,7 +110,7 @@ export default function SlideViewer({ slides, index, onIndexChange, locked = fal
             </button>
           </div>
           {showScript && (
-            <p className="mt-2.5 whitespace-pre-line text-sm leading-relaxed text-ink/90">
+            <p className="mt-2.5 break-words whitespace-pre-line text-sm leading-relaxed text-ink/90">
               {slide.script}
             </p>
           )}

@@ -721,7 +721,7 @@ export default function SummaryStep({
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+    <div className="mx-auto w-full max-w-5xl px-3 py-6 sm:px-6 sm:py-12">
       {/* หัวข้อสรุปผล */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -1385,7 +1385,7 @@ export default function SummaryStep({
                   </button>
 
                   {isOpen && (
-                    <div className="border-t border-line px-5 pb-5 pt-4 bg-paper/20">
+                    <div className="border-t border-line px-3.5 pb-4 pt-3.5 sm:px-5 sm:pb-5 sm:pt-4 bg-paper/20">
                       {/* ข้อความที่พูด (โหมดแสดงผล หรือ โหมดแก้ไข) + ภาพสไลด์ย่อ */}
                       <div className={s.src ? 'grid gap-3 sm:grid-cols-[150px_1fr] items-start' : ''}>
                         {s.src && (

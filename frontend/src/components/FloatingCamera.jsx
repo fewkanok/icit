@@ -105,12 +105,20 @@ export default function FloatingCamera({ vision, live }) {
 
   if (!vision.cameraActive) return null;
 
+  const safeWidth =
+    typeof window !== 'undefined' ? Math.min(width, Math.max(200, window.innerWidth - 16)) : width;
+  const safeLeft =
+    typeof window !== 'undefined'
+      ? Math.max(8, Math.min(position.x, window.innerWidth - (minimized ? 140 : safeWidth) - 8))
+      : position.x;
+
   return (
     <div
       style={{
-        left: `${position.x}px`,
+        left: `${safeLeft}px`,
         top: `${position.y}px`,
-        width: minimized ? 'auto' : `${width}px`,
+        width: minimized ? 'auto' : `${safeWidth}px`,
+        maxWidth: 'calc(100vw - 16px)',
       }}
       className={`fixed z-50 rounded-xl border border-line bg-white/95 shadow-2xl backdrop-blur-md select-none transition-shadow ${
         dragRef.current.isDragging ? 'cursor-grabbing shadow-3xl ring-2 ring-ink/20' : ''

@@ -877,7 +877,7 @@ export default function GroupStageView({
   const liveFillers = useMemo(() => countFillers(liveTranscript).total, [liveTranscript]);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <div className="mx-auto w-full max-w-6xl px-3 py-5 sm:px-6 sm:py-8">
       {Object.entries(remoteStreams).map(([peerId, stream]) =>
         peerId !== selfId ? (
           <RemotePeerAudio key={peerId} stream={stream} volume={peerVolumes[peerId] ?? 1} />
@@ -1084,7 +1084,7 @@ export default function GroupStageView({
       )}
 
       {/* Grid 2 คอลัมน์เหมือน RehearsalStep */}
-      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_360px]">
+      <div className="mt-6 grid gap-6 sm:gap-8 lg:grid-cols-[1fr_360px]">
         {/* ซ้าย: สไลด์กลาง + ปุ่มเปลี่ยนหน้า / คิว */}
         <div className="space-y-4">
           <SlideViewer

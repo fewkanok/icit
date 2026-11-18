@@ -651,7 +651,7 @@ export default function GroupQaView({
 
   if (!audioReady && questions.length > 0) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-12">
+      <div className="mx-auto w-full max-w-2xl px-3 py-6 sm:px-6 sm:py-12">
         {Object.entries(remoteStreams).map(([peerId, stream]) =>
           peerId !== selfId ? (
             <RemotePeerAudio key={peerId} stream={stream} volume={peerVolumes[peerId] ?? 1} />
@@ -666,7 +666,7 @@ export default function GroupQaView({
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-12">
+    <div className="mx-auto w-full max-w-2xl px-3 py-6 sm:px-6 sm:py-12">
       {Object.entries(remoteStreams).map(([peerId, stream]) =>
         peerId !== selfId ? (
           <RemotePeerAudio key={peerId} stream={stream} volume={peerVolumes[peerId] ?? 1} />

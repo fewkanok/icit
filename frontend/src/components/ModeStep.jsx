@@ -61,12 +61,12 @@ export default function ModeStep({
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14 space-y-10">
+    <div className="mx-auto w-full max-w-5xl px-3 py-8 sm:px-6 sm:py-14 space-y-8 sm:space-y-10">
       <div className="text-center space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-4xl break-words">
           ซ้อมพรีเซนต์งานอย่างมั่นใจ
         </h1>
-        <p className="mx-auto max-w-2xl text-base text-muted">
+        <p className="mx-auto max-w-2xl text-sm sm:text-base text-muted break-words">
           เลือกรูปแบบการซ้อมที่เหมาะกับงานของคุณ ระบบจะช่วยวิเคราะห์จังหวะพูด สายตา และจำลองถาม-ตอบ Q&amp;A
         </p>
       </div>
@@ -122,16 +122,16 @@ export default function ModeStep({
       )}
 
       {/* Hero Mode Cards (ใช้ Surface Contrast + Subtle Shadow แทนเส้นขอบซ้อน) */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:gap-6 md:grid-cols-2">
         <button
           type="button"
           onClick={() => setSetupOpen(true)}
-          className="group flex flex-col justify-between rounded-2xl bg-white p-7 text-left shadow-[0_2px_10px_rgba(27,27,26,0.06)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(27,27,26,0.09)] cursor-pointer"
+          className="group flex w-full min-w-0 flex-col justify-between rounded-2xl bg-white p-5 sm:p-7 text-left shadow-[0_2px_10px_rgba(27,27,26,0.06)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(27,27,26,0.09)] cursor-pointer"
         >
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-paper text-ink">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper text-ink">
                   <UserIcon className="size-5" />
                 </span>
                 <ModeBadge mode="solo" />
@@ -139,12 +139,12 @@ export default function ModeStep({
               <span className="text-xs text-muted">1 คน · เครื่องเดียว</span>
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-ink">ซ้อมพรีเซนต์เดี่ยว</h2>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted">
+              <h2 className="text-lg sm:text-xl font-semibold text-ink break-words">ซ้อมพรีเซนต์เดี่ยว</h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted break-words">
                 ฝึกพูดคนเดียวทีละสไลด์หรือซ้อมใหญ่ต่อเนื่อง พร้อมตัวช่วยวิเคราะห์ครบชุด
               </p>
             </div>
-            <ul className="space-y-2 rounded-xl bg-paper/75 p-4 text-sm text-ink/90">
+            <ul className="space-y-2 rounded-xl bg-paper/75 p-4 text-sm text-ink/90 break-words">
               <li>• เลือกซ้อมเฉพาะหน้าสไลด์ที่ต้องการได้</li>
               <li>• ใช้มือถือเป็นรีโมตควบคุมสไลด์ได้</li>
               <li>• บันทึกประวัติ + เทียบรอบ + รวมคลิปอัตโนมัติ</li>
@@ -152,19 +152,19 @@ export default function ModeStep({
           </div>
           <span className="mt-6 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-paper transition group-hover:bg-ink/90">
             เริ่มตั้งค่าซ้อมเดี่ยว
-            <ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-0.5" />
+            <ArrowRightIcon className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
           </span>
         </button>
 
         <button
           type="button"
           onClick={onEnterGroup}
-          className="group flex flex-col justify-between rounded-2xl bg-white p-7 text-left shadow-[0_2px_10px_rgba(27,27,26,0.06)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(217,72,15,0.12)] cursor-pointer"
+          className="group flex w-full min-w-0 flex-col justify-between rounded-2xl bg-white p-5 sm:p-7 text-left shadow-[0_2px_10px_rgba(27,27,26,0.06)] ring-1 ring-black/5 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(217,72,15,0.12)] cursor-pointer"
         >
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-accent/10 text-accent">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
                   <UsersIcon className="size-5" />
                 </span>
                 <ModeBadge mode="group" />
@@ -172,12 +172,12 @@ export default function ModeStep({
               <span className="text-xs text-muted">2–6 คน · ออนไลน์คนละเครื่อง</span>
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-ink">ซ้อมพรีเซนต์กลุ่ม</h2>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted">
+              <h2 className="text-lg sm:text-xl font-semibold text-ink break-words">ซ้อมพรีเซนต์กลุ่ม</h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted break-words">
                 สร้างห้องแชร์ลิงก์ให้เพื่อนเข้ามาซ้อมต่อคิวพูดจากคนละเครื่องแบบเรียลไทม์
               </p>
             </div>
-            <ul className="space-y-2 rounded-xl bg-paper/75 p-4 text-sm text-ink/90">
+            <ul className="space-y-2 rounded-xl bg-paper/75 p-4 text-sm text-ink/90 break-words">
               <li>• แบ่งคิวคนพูดตามหน้าสไลด์ ซิงก์ตรงกันทั้งห้อง</li>
               <li>• สลับกล้อง/เสียงผู้พูดอัตโนมัติตามสไลด์</li>
               <li>• หัวหน้ากลุ่มบันทึก History ให้เพื่อนเห็นร่วมกันได้</li>
@@ -185,7 +185,7 @@ export default function ModeStep({
           </div>
           <span className="mt-6 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-white transition group-hover:bg-accent/90">
             สร้าง / เข้าร่วมห้องกลุ่ม
-            <ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-0.5" />
+            <ArrowRightIcon className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
           </span>
         </button>
       </div>

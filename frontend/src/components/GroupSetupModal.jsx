@@ -53,8 +53,8 @@ export default function GroupSetupModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 p-0 sm:p-4 backdrop-blur-xs">
-      <div className="animate-fade-up w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white p-6 shadow-2xl space-y-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-2 sm:p-4 backdrop-blur-xs">
+      <div className="animate-fade-up w-[95vw] sm:w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-2xl bg-white p-4 sm:p-6 shadow-2xl space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <span className="inline-block rounded-full border border-line bg-paper px-3 py-0.5 text-[11px] font-medium text-muted">
@@ -83,13 +83,13 @@ export default function GroupSetupModal({
             <div className="space-y-5">
               <div>
                 <p className="text-xs font-semibold text-ink">1. คนฟังคือใคร</p>
-                <div className="mt-2.5 grid grid-cols-3 gap-2">
+                <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {AUDIENCES.map((a) => (
                     <button
                       key={a.id}
                       type="button"
                       onClick={() => setAudience(a.id)}
-                      className={`rounded-xl border px-3 py-2.5 text-xs font-medium transition cursor-pointer ${
+                      className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-xs font-medium transition cursor-pointer ${
                         audience === a.id
                           ? 'border-ink bg-ink text-paper'
                           : 'border-line bg-white text-ink hover:border-faint'
@@ -106,7 +106,7 @@ export default function GroupSetupModal({
                   <p className="text-xs font-semibold text-ink">2. จำนวนสมาชิกสูงสุดในห้อง</p>
                   <span className="text-[11px] text-muted">แนะนำไม่เกิน 6 คน</span>
                 </div>
-                <div className="mt-2.5 grid grid-cols-5 gap-2">
+                <div className="mt-2.5 grid grid-cols-3 gap-2 sm:grid-cols-5">
                   {[2, 3, 4, 5, 6].map((n) => {
                     const disabled = n < minAllowed;
                     return (
@@ -115,7 +115,7 @@ export default function GroupSetupModal({
                         type="button"
                         disabled={disabled}
                         onClick={() => setMaxMembers(n)}
-                        className={`rounded-xl border py-2.5 text-xs font-medium transition ${
+                        className={`min-h-[44px] rounded-xl border py-2.5 text-xs font-medium transition ${
                           maxMembers === n
                             ? 'border-ink bg-ink text-paper'
                             : 'border-line bg-white text-ink hover:border-faint'
@@ -138,13 +138,13 @@ export default function GroupSetupModal({
                     <span className="text-muted">เวลาพรีเซนต์</span>
                     <span className="text-[11px] text-faint">สูงสุด 30 นาที</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {PRESENT_PRESETS.map((p) => (
                       <button
                         key={p.mins}
                         type="button"
                         onClick={() => setPresentMins(p.mins)}
-                        className={`rounded-lg border py-2 text-xs font-medium transition cursor-pointer ${
+                        className={`min-h-[40px] rounded-lg border py-2 text-xs font-medium transition cursor-pointer ${
                           Number(presentMins) === p.mins
                             ? 'border-ink bg-ink text-paper'
                             : 'border-line bg-white text-ink hover:border-faint'
@@ -174,13 +174,13 @@ export default function GroupSetupModal({
                     <span className="text-muted">เวลาถาม-ตอบ</span>
                     <span className="text-[11px] text-faint">สูงสุด 15 นาที</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {QA_PRESETS.map((p) => (
                       <button
                         key={p.mins}
                         type="button"
                         onClick={() => setQaMins(p.mins)}
-                        className={`rounded-lg border py-2 text-xs font-medium transition cursor-pointer ${
+                        className={`min-h-[40px] rounded-lg border py-2 text-xs font-medium transition cursor-pointer ${
                           Number(qaMins) === p.mins
                             ? 'border-ink bg-ink text-paper'
                             : 'border-line bg-white text-ink hover:border-faint'
@@ -208,12 +208,12 @@ export default function GroupSetupModal({
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-ink">อุปกรณ์และตัวเลือกเสริม</p>
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/50 px-4 py-3">
-                  <div>
-                    <p className="text-xs font-medium text-ink">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/50 px-3.5 py-3 sm:px-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-ink break-words">
                       สุ่มถามแทรกระหว่างซ้อม (-1 Token/คำถาม)
                     </p>
-                    <p className="text-[11px] text-muted">
+                    <p className="text-[11px] text-muted break-words">
                       มีคำถามแทรกสั้นๆ หลังพูดจบสไลด์บางหน้า (~20% เมื่อมี 3 หน้าขึ้นไป)
                     </p>
                   </div>
@@ -224,12 +224,12 @@ export default function GroupSetupModal({
                   />
                 </div>
 
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/50 px-4 py-3">
-                  <div>
-                    <p className="text-xs font-medium text-ink">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-paper/50 px-3.5 py-3 sm:px-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-ink break-words">
                       ให้เพื่อนในห้องช่วยกดเลื่อนสไลด์ได้
                     </p>
-                    <p className="text-[11px] text-muted">
+                    <p className="text-[11px] text-muted break-words">
                       เปิดเมื่ออยากให้สมาชิกคนอื่นกดเปลี่ยนสไลด์แทนคนพูดได้
                     </p>
                   </div>
@@ -244,12 +244,12 @@ export default function GroupSetupModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-line pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
           {step === 1 ? (
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-line px-4 py-2 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+              className="min-h-[44px] rounded-xl border border-line px-4 py-2 text-xs font-medium text-ink hover:border-faint cursor-pointer"
             >
               ยกเลิก
             </button>
@@ -257,7 +257,7 @@ export default function GroupSetupModal({
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="rounded-xl border border-line px-4 py-2 text-xs font-medium text-ink hover:border-faint cursor-pointer"
+              className="min-h-[44px] rounded-xl border border-line px-4 py-2 text-xs font-medium text-ink hover:border-faint cursor-pointer"
             >
               ← ย้อนกลับ
             </button>
@@ -267,7 +267,7 @@ export default function GroupSetupModal({
             <button
               type="button"
               onClick={() => setStep(2)}
-              className="rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 cursor-pointer"
+              className="min-h-[44px] rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 cursor-pointer"
             >
               ถัดไป →
             </button>
@@ -275,7 +275,7 @@ export default function GroupSetupModal({
             <button
               type="button"
               onClick={handleConfirm}
-              className="rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 cursor-pointer"
+              className="min-h-[44px] rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 cursor-pointer"
             >
               บันทึกการตั้งค่า
             </button>
