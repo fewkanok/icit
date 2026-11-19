@@ -12,17 +12,45 @@ const DEFAULT_RENDER_BACKEND = 'https://icit.onrender.com';
 const MAX_INLINE_PDF_BYTES = 150 * 1024 * 1024; // รองรับไฟล์ PDF ขนาดใหญ่ถึง 150 MB
 const userSlideContextMap = new Map();
 
-function buildBriefSlideSummary(fileName, cleanTitle, extractedPages, totalPdfPages) {
-  if (Array.isArray(extractedPages) && extractedPages.length > 0) {
-    const count = totalPdfPages || extractedPages.length;
-    const lines = extractedPages.map((p) => {
-      const shortText = String(p.text || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-      return `📌 หน้า ${p.page}: ${shortText}${p.text?.length > 140 ? '...' : ''}`;
-    });
+function buildBriefSlideSummary(
+  fileName,
+  cleanTitle,
+  extractedPages,
+  totalPdfPages,
+  aiOverallSummary = '',
+) {
+  const count = totalPdfPages || extractedPages?.length || 0;
+  if (aiOverallSummary && aiOverallSummary.trim()) {
     return [
-      `📄 สรุปเนื้อหาคร่าวๆ จากไฟล์ "${fileName}" (${count} หน้า)`,
+      `📄 สรุปเนื้อหาคร่าวๆ จากสไลด์ทั้งหมด "${fileName}"${count ? ` (${count} หน้า)` : ''}`,
       '',
-      ...lines,
+      aiOverallSummary.trim(),
+      '',
+      'เลือกดำเนินการต่อจากปุ่มด้านล่างได้เลยครับ 👇',
+    ]
+      .join('\n')
+      .slice(0, 4800);
+  }
+  if (Array.isArray(extractedPages) && extractedPages.length > 0) {
+    const pickIndices = Array.from(
+      new Set([
+        0,
+        Math.floor(extractedPages.length / 2),
+        extractedPages.length - 1,
+      ]),
+    ).filter((idx) => idx >= 0 && idx < extractedPages.length);
+    const highlights = pickIndices
+      .map((idx) => {
+        const raw = String(extractedPages[idx]?.text || '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return raw ? `• ${raw.slice(0, 120)}${raw.length > 120 ? '...' : ''}` : '';
+      })
+      .filter(Boolean);
+    return [
+      `📄 สรุปเนื้อหาคร่าวๆ จากสไลด์ทั้งหมด "${fileName}" (${count} หน้า)`,
+      '',
+      ...highlights,
       '',
       'เลือกดำเนินการต่อจากปุ่มด้านล่างได้เลยครับ 👇',
     ]
@@ -31,7 +59,7 @@ function buildBriefSlideSummary(fileName, cleanTitle, extractedPages, totalPdfPa
   }
   return [
     `📄 รับไฟล์ "${fileName}" (${cleanTitle}) เรียบร้อยแล้วครับ`,
-    'ระบบได้เตรียมห้องซ้อมพรีเซนต์สำหรับไฟล์ชุดนี้ไว้ให้แล้ว สามารถกดปุ่มด้านล่างเพื่อเข้าซ้อมบนเว็บ หรือสุ่มคำถามจากสไลด์ได้เลยครับ 👇',
+    'ระบบได้เตรียมห้องซ้อมพรีเซนต์สำหรับไฟล์ชุดนี้ไว้ให้แล้ว สามารถกดปุ่มด้านล่างเพื่อเข้าซ้อม หรือสุ่มคำถามจากสไลด์ได้เลยครับ 👇',
   ].join('\n\n');
 }
 
@@ -55,7 +83,7 @@ function readRawBody(req) {
 function buildFlowGuideFlex(appBaseUrl) {
   return {
     type: 'flex',
-    altText: 'ขั้นตอนการใช้งาน ICIT Rehearsal Coach (4 ขั้นตอน)',
+    altText: 'ขั้นตอนการใช้งาน PoodDee Rehearsal Coach (4 ขั้นตอน)',
     contents: {
       type: 'bubble',
       size: 'mega',
@@ -67,7 +95,7 @@ function buildFlowGuideFlex(appBaseUrl) {
         contents: [
           {
             type: 'text',
-            text: 'ICIT REHEARSAL COACH × LANGMIND',
+            text: 'PoodDee REHEARSAL COACH × LANGMIND',
             color: '#D95D39',
             size: 'xs',
             weight: 'bold',
@@ -255,7 +283,7 @@ async function extractPdfPagesText(arrayBuf) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 15);
+    const maxPages = Math.min(doc.numPages, 30);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -324,7 +352,7 @@ function buildPdfActionFlex({ title, pageCount, rehearsalUrl }) {
         contents: [
           {
             type: 'text',
-            text: 'ICIT REHEARSAL COACH',
+            text: 'PoodDee REHEARSAL COACH',
             weight: 'bold',
             size: 'xs',
             color: '#D95D39',
@@ -759,17 +787,38 @@ export default async function handler(req, res) {
         };
         userSlideContextMap.set(userId, ctxPayload);
 
-        // บันทึกบริบทสไลด์ลง Backend เพื่อให้กด "สุ่มคำถามจากสไลด์" ผ่าน LangMind ได้แม่นยำเสมอ
+        // บันทึกบริบทสไลด์ลง Backend และขอสรุปภาพรวมสไลด์ทั้งหมดจาก AI
+        let aiOverallSummary = '';
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 2500);
-          await fetch(`${renderBackendBase}/api/langmind/context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ctxPayload),
-            signal: controller.signal,
-          });
+          const timer = setTimeout(() => controller.abort(), 5500);
+          const [, sumRes] = await Promise.all([
+            fetch(`${renderBackendBase}/api/langmind/context`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ctxPayload),
+              signal: controller.signal,
+            }).catch(() => null),
+            extractedPages.length > 0
+              ? fetch(`${renderBackendBase}/api/langmind/summarize-slides`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    deckName: cleanTitle,
+                    pageCount: totalPdfPages || extractedPages.length,
+                    summaryText: extractedTextBlock,
+                  }),
+                  signal: controller.signal,
+                }).catch(() => null)
+              : Promise.resolve(null),
+          ]);
           clearTimeout(timer);
+          if (sumRes && sumRes.ok) {
+            const sumJson = await sumRes.json().catch(() => null);
+            if (sumJson?.summary) {
+              aiOverallSummary = String(sumJson.summary).trim();
+            }
+          }
         } catch {
           // ignore if backend slow
         }
@@ -779,6 +828,7 @@ export default async function handler(req, res) {
           cleanTitle,
           extractedPages,
           totalPdfPages,
+          aiOverallSummary,
         );
 
         const messagesToSend = [{ type: 'text', text: briefSummaryText }];

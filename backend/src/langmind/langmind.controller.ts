@@ -569,6 +569,55 @@ ${summaryText.slice(0, 4000)}
     };
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Post('summarize-slides')
+  async summarizeSlides(
+    @Body()
+    body: {
+      deckName?: string;
+      pageCount?: number;
+      summaryText?: string;
+    },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const deckName = String(body?.deckName || 'สไลด์นำเสนอ').trim();
+    const pageCount = Number(body?.pageCount || 0);
+    const summaryText = String(body?.summaryText || '').trim();
+
+    if (!apiKey || !summaryText) {
+      return { ok: false };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `คุณคือผู้ช่วยสรุปสไลด์นำเสนอ (PoodDee Rehearsal Coach)
+ชื่อไฟล์/หัวข้อ: "${deckName}" (${pageCount > 0 ? `${pageCount} หน้า` : 'หลายหน้า'})
+เนื้อหาที่ดึงได้จากสไลด์ทั้งหมด:
+${summaryText.slice(0, 6000)}
+
+จงสรุปภาพรวมเนื้อหาคร่าวๆ ของสไลด์ทั้งหมดนี้เป็นภาษาไทยให้เข้าใจง่าย กระชับ และจบในข้อความเดียว (ห้ามไล่สรุปทีละหน้าแบบ หน้า 1, หน้า 2)
+กติกา:
+- สรุปภาพรวมทั้งชุดสไลด์ใน 3 ประเด็นสั้นๆ (ความยาวรวมไม่เกิน 450 ตัวอักษร) ได้แก่:
+  • เป้าหมาย/ปัญหาหลักที่นำเสนอ
+  • วิธีการ/แนวทางหรือเทคโนโลยีที่ใช้
+  • ผลลัพธ์หรือจุดเด่นสำคัญของงาน
+- ใช้ภาษาสุภาพ อ่านง่ายใน LINE ไม่ต้องมีคำนำหรือคำลงท้ายยาว`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+      const summary = (response.text || '').trim();
+      if (summary) {
+        return { ok: true, summary };
+      }
+    } catch {
+      // fallback handled by caller
+    }
+
+    return { ok: false };
+  }
+
   private pruneExpiredMemory() {
     const now = Date.now();
     for (const [key, entry] of this.memoryStore.entries()) {
