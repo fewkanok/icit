@@ -516,6 +516,59 @@ export class LangmindController {
     return { ok: false };
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Post('generate-question')
+  async generateQuestionFromSlide(
+    @Body()
+    body: {
+      userId?: string;
+      focusMode?: string;
+      deckName?: string;
+      summaryText?: string;
+    },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const deckName = String(body?.deckName || 'สไลด์นำเสนอ').trim();
+    const summaryText = String(body?.summaryText || '').trim();
+    const focusMode = String(body?.focusMode || 'เนื้อหาสำคัญในสไลด์').trim();
+
+    if (!apiKey || !summaryText) {
+      return {
+        ok: true,
+        question: `จากสไลด์เรื่อง "${deckName}" อะไรคือประเด็นสำคัญหรือจุดพลิกผันหลักของงานชิ้นนี้ และสามารถนำไปประยุกต์ใช้จริงได้อย่างไรครับ?`,
+      };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `คุณคือกรรมการสอบโครงงานระดับมหาวิทยาลัย
+หัวข้อสไลด์: "${deckName}"
+เนื้อหาสไลด์ของผู้เรียน:
+${summaryText.slice(0, 4000)}
+
+จงตั้งคำถามกรรมการสอบที่เฉียบคม เจาะจงกับเนื้อหาสไลด์ข้างต้นมาเพียง 1 ข้อเท่านั้น (เน้น${focusMode})
+กติกา:
+- ตอบกลับมาเป็นข้อความคำถาม 1 ข้อสั้นๆ กระชับ ภาษาไทยเท่านั้น
+- ห้ามเฉลยคำตอบ และห้ามเขียนคำนำหรือข้อความอื่นเกินจำเป็น`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+      const question = (response.text || '').trim().replace(/^["']|["']$/g, '');
+      if (question) {
+        return { ok: true, question };
+      }
+    } catch {
+      // fallback below
+    }
+
+    return {
+      ok: true,
+      question: `จากเนื้อหาในสไลด์ "${deckName}" ช่วยอธิบายเหตุผลสำคัญและหลักฐาน/วิธีการหลักที่ทำให้ผลลัพธ์ของงานนี้สำเร็จครับ?`,
+    };
+  }
+
   private pruneExpiredMemory() {
     const now = Date.now();
     for (const [key, entry] of this.memoryStore.entries()) {

@@ -462,15 +462,20 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ดึงเนื้อหาสไลด์จริงแนบส่งเข้าสมองของ LangMind โดยตรง!
-        if (/^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(text)) {
-          modified = true;
+        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ดึงเนื้อหาสไลด์จริงสร้างคำถาม 1 ข้อและบอกวิธีเปิดไมค์ตอบทันที (ไม่สร้างไฟล์ใดๆ)
+        if (
+          ev.replyToken &&
+          channelAccessToken &&
+          /^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(
+            text,
+          )
+        ) {
           const userId = ev?.source?.userId || 'default';
           let savedCtx = userSlideContextMap.get(userId);
           if (!savedCtx) {
             try {
               const controller = new AbortController();
-              const timer = setTimeout(() => controller.abort(), 2500);
+              const timer = setTimeout(() => controller.abort(), 3000);
               const ctxRes = await fetch(
                 `${renderBackendBase}/api/langmind/context/${encodeURIComponent(userId)}`,
                 { signal: controller.signal },
@@ -494,18 +499,104 @@ export default async function handler(req, res) {
               ? 'หมวด [R] การวัดผลและการนำไปใช้งานจริง'
               : 'เนื้อหาสำคัญในสไลด์หรือโครงสร้างสไลด์';
 
-          const contextBlock = savedCtx?.summaryText
-            ? `นี่คือข้อมูลสไลด์ล่าสุดของผม (${savedCtx.deckName || 'สไลด์นำเสนอ'}):\n${savedCtx.summaryText}\n\n`
-            : '';
+          const deckName = savedCtx?.deckName || 'สไลด์นำเสนอ';
+          let questionText = `จากสไลด์เรื่อง "${deckName}" อะไรคือจุดเด่นสำคัญและหลักฐาน/วิธีการหลักที่ทำให้งานชิ้นนี้สำเร็จตามเป้าหมายครับ?`;
 
-          forwardEvents.push({
-            ...ev,
-            message: {
-              id: ev.message.id,
-              type: 'text',
-              text: `${contextBlock}ช่วยตั้งคำถามกรรมการสอบ 1 ข้อทันทีจากเนื้อหาสไลด์ข้างต้น (เน้น${focusMode}) โดยห้ามปฏิเสธหรือขอข้อมูลซ้ำ ห้ามเรียกใช้เครื่องมือ create_downloadable_file หรือสร้างไฟล์ใดๆ และห้ามพูดถึงไฟล์ .docx/.pptx ให้ตอบกลับมาเป็นข้อความคำถามสั้นๆ คมๆ เพียง 1 ข้อ (ยังไม่ต้องเฉลยคำตอบ) พร้อมบอกให้ผมกดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ได้เลยครับ`,
-            },
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 6000);
+            const qRes = await fetch(`${renderBackendBase}/api/langmind/generate-question`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId,
+                focusMode,
+                deckName,
+                summaryText: savedCtx?.summaryText || '',
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (qRes.ok) {
+              const qJson = await qRes.json();
+              if (qJson?.question) {
+                questionText = String(qJson.question).trim();
+              }
+            }
+          } catch {
+            // use fallback question
+          }
+
+          userSlideContextMap.set(userId, {
+            ...(savedCtx || { userId, deckName }),
+            lastQuestion: questionText,
           });
+
+          await replyToLine(channelAccessToken, ev.replyToken, [
+            {
+              type: 'flex',
+              altText: `คำถามซ้อมสอบ: ${questionText}`,
+              contents: {
+                type: 'bubble',
+                body: {
+                  type: 'box',
+                  layout: 'vertical',
+                  spacing: 'md',
+                  contents: [
+                    {
+                      type: 'text',
+                      text: `❓ คำถามกรรมการสอบ · ${deckName}`,
+                      color: '#D95D39',
+                      size: 'xs',
+                      weight: 'bold',
+                      wrap: true,
+                    },
+                    {
+                      type: 'text',
+                      text: `“${questionText}”`,
+                      weight: 'bold',
+                      size: 'md',
+                      color: '#1F1E1D',
+                      wrap: true,
+                    },
+                    {
+                      type: 'box',
+                      layout: 'vertical',
+                      backgroundColor: '#FFF4F0',
+                      cornerRadius: '8px',
+                      paddingAll: '12px',
+                      contents: [
+                        {
+                          type: 'text',
+                          text: '🎙️ กดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบคำถามนี้ได้เลยครับ (หรือพิมพ์คำตอบส่งมาได้เลย)',
+                          size: 'xs',
+                          color: '#D95D39',
+                          weight: 'bold',
+                          wrap: true,
+                        },
+                      ],
+                    },
+                  ],
+                },
+                footer: {
+                  type: 'box',
+                  layout: 'vertical',
+                  contents: [
+                    {
+                      type: 'button',
+                      style: 'secondary',
+                      height: 'sm',
+                      action: {
+                        type: 'message',
+                        label: '🔄 สุ่มคำถามข้อใหม่',
+                        text: 'สุ่มคำถามจากสไลด์',
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ]);
           continue;
         }
 
