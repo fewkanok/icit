@@ -607,13 +607,16 @@ export default async function handler(req, res) {
       // 3. เมื่อผู้ใช้กดไมค์อัดเสียงพูดตอบใน LINE (type === 'audio') -> ถอดเสียงแล้วส่งให้ LangMind ประมวลผลตรวจคำตอบ!
       if (ev?.type === 'message' && ev?.message?.type === 'audio' && channelAccessToken) {
         modified = true;
+        const userId = ev?.source?.userId || 'default';
         const messageId = ev.message.id;
         const durationSec = Math.max(1, Math.round(Number(ev.message.duration || 15000) / 1000));
+        const savedCtx = userSlideContextMap.get(userId) || {};
         let transcript = '';
+        let transcribeError = '';
 
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 6000);
+          const timer = setTimeout(() => controller.abort(), 18000);
           const audioRes = await fetch(
             `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
             {
@@ -622,6 +625,8 @@ export default async function handler(req, res) {
             },
           );
           if (audioRes.ok) {
+            const rawMime = (audioRes.headers.get('content-type') || 'audio/mp4').split(';')[0].trim();
+            const mimeType = rawMime.includes('m4a') ? 'audio/mp4' : rawMime;
             const arrayBuf = await audioRes.arrayBuffer();
             const audioBase64 = Buffer.from(arrayBuf).toString('base64');
             const evalRes = await fetch(`${renderBackendBase}/api/langmind/evaluate-voice`, {
@@ -629,8 +634,10 @@ export default async function handler(req, res) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 audioBase64,
-                mimeType: 'audio/mp4',
+                mimeType,
                 durationSec,
+                question: savedCtx.lastQuestion,
+                deckTitle: savedCtx.deckName,
               }),
               signal: controller.signal,
             });
@@ -638,22 +645,42 @@ export default async function handler(req, res) {
               const json = await evalRes.json();
               if (json?.transcript) {
                 transcript = String(json.transcript).trim();
+              } else if (json?.message) {
+                transcribeError = String(json.message);
               }
+            } else {
+              transcribeError = `Backend HTTP ${evalRes.status}`;
             }
+          } else {
+            transcribeError = `LINE Audio HTTP ${audioRes.status}`;
           }
           clearTimeout(timer);
         } catch (err) {
-          console.warn('[LINE Voice -> LangMind] Audio transcribe fallback:', err?.message);
+          transcribeError = err?.name === 'AbortError' ? 'หมดเวลาถอดเสียง (Timeout)' : (err?.message || 'เชื่อมต่อระบบถอดเสียงไม่สำเร็จ');
+          console.warn('[LINE Voice -> LangMind] Audio transcribe fallback:', transcribeError);
         }
 
         const wordCount = transcript
-          ? transcript.split(/\s+/).length * 3
+          ? transcript.replace(/\s+/g, '').length / 3.5
           : Math.round(durationSec * 2.2);
-        const wpm = Math.round((wordCount / durationSec) * 60);
+        const wpm = Math.max(1, Math.round((wordCount / durationSec) * 60));
+
+        const questionCtx = savedCtx.lastQuestion
+          ? `คำถามที่ถามคือ: "${savedCtx.lastQuestion}"\n`
+          : '';
 
         const voicePromptToLangMind = transcript
-          ? `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE (ความยาวเสียง ${durationSec} วินาที, ความเร็วประมาณ ${wpm} คำ/นาที) ข้อความที่ถอดจากเสียงพูดของผมคือ:\n"${transcript}"\n\nกรุณาช่วยตรวจประเมินคำตอบนี้เทียบกับคำถามที่คุณเพิ่งถามและเนื้อหาสไลด์ของเรา ให้คะแนนเต็ม 10 วิเคราะห์จุดเด่น จุดที่ควรปรับปรุง (ทั้งด้านเนื้อหาและจังหวะการพูด ${wpm} คำ/นาที) พร้อมแนะนำตัวอย่างคำตอบที่คมชัดตามหลัก A-R-E (Answer-Reason-Evidence) ครับ`
-          : `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE ความยาว ${durationSec} วินาที (ความเร็วประมาณ ${wpm} คำ/นาที) กรุณาช่วยประเมินจังหวะเวลาการตอบคำถาม (${durationSec} วินาที) และให้แนวทางคำตอบที่ดีที่สุดตามหลัก A-R-E สำหรับคำถามที่คุณเพิ่งถามผมด้วยครับ`;
+          ? [
+              `ผมอัดเสียงพูดตอบคำถามใน LINE (ความยาว ${durationSec} วินาที, ความเร็วประมาณ ${wpm} คำ/นาที)`,
+              questionCtx ? questionCtx.trim() : null,
+              `ข้อความที่ถอดได้จากเสียงพูดของผมคือ:\n"${transcript}"`,
+              `[คำสั่งสำคัญ]:`,
+              `1. กรุณาขึ้นต้นข้อความตอบกลับด้วยการทวนข้อความเสียงที่ระบบได้ยินตรงตามตัวอักษรในรูปแบบนี้ก่อน:\n🗣️ ข้อความเสียงที่ระบบได้ยิน: "${transcript}"`,
+              `2. จากนั้นตรวจประเมินคำตอบนี้เทียบกับคำถามและเนื้อหาสไลด์ ให้คะแนนเต็ม 10 วิเคราะห์จุดเด่น จุดที่ควรปรับปรุง (รวมถึงจังหวะการพูด ${wpm} คำ/นาที) และแนะนำตัวอย่างคำตอบตามหลัก A-R-E (ห้ามสร้างไฟล์ดาวน์โหลดใดๆ)`,
+            ]
+              .filter(Boolean)
+              .join('\n\n')
+          : `ระบบไม่สามารถถอดข้อความจากไฟล์เสียงได้ (${transcribeError || 'ไม่ได้ยินเสียงพูดชัดเจน'}) ความยาวเสียง ${durationSec} วินาที กรุณาแจ้งผู้ใช้ตรงๆ ว่า "⚠️ ระบบไม่สามารถถอดเสียงพูดได้ (${transcribeError || 'ไม่ได้ยินเสียงพูดชัดเจน'})" และแนะนำให้ลองกดไมค์พูดใกล้ๆ ใหม่อีกครั้งครับ (ห้ามเดาเนื้อหาที่พูดและห้ามสร้างไฟล์ดาวน์โหลดใดๆ)`;
 
         forwardEvents.push({
           ...ev,
