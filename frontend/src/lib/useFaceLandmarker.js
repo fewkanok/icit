@@ -38,6 +38,55 @@ async function getFaceLandmarker() {
  * - ไม่พึ่งพา Matrix อย่างเดียว จึงทำงานได้ 100% ทุกกล้องและทุกการ์ดจอ
  * - แยกแยะการกะพริบตาออกจากการก้มอ่านโพย และตอบสนองต่อการขยับศีรษะ/สายตาแบบ Real-time
  */
+const BASELINE_STORAGE_KEY = 'zomgon_eye_baseline_v2';
+const MANUAL_CALIB_KEY = 'zomgon_eye_manual_calibrated_v1';
+
+function loadManualCalibrated() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(MANUAL_CALIB_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveManualCalibrated() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(MANUAL_CALIB_KEY, '1');
+  } catch {
+    // ignore
+  }
+}
+
+function loadSavedBaseline() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(BASELINE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.pitch === 'number' &&
+      typeof parsed?.yaw === 'number' &&
+      typeof parsed?.irisY === 'number'
+    ) {
+      return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function saveBaseline(baseline) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify(baseline));
+  } catch {
+    // ignore
+  }
+}
+
 export function useFaceLandmarker() {
   const [cameraActive, setCameraActive] = useState(false);
   const [modelLoading, setModelLoading] = useState(false);
@@ -49,12 +98,19 @@ export function useFaceLandmarker() {
   const [eyeContactPct, setEyeContactPct] = useState(100);
   const [lookingDownCount, setLookingDownCount] = useState(0);
   const [poseAngles, setPoseAngles] = useState({ pitch: 0, yaw: 0 });
+  const [calibrated, setCalibrated] = useState(() => Boolean(loadSavedBaseline()));
+  const [manualCalibrated, setManualCalibrated] = useState(() => loadManualCalibrated());
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const ownsStreamRef = useRef(true);
   const animFrameRef = useRef(null);
   const landmarkerRef = useRef(null);
+
+  // ค่าศูนย์ (Baseline) + EMA Smoothing เพื่อความแม่นยำตามมุมกล้องแต่ละเครื่อง
+  const baselineRef = useRef(loadSavedBaseline());
+  const autoCalibSamplesRef = useRef([]);
+  const smoothRef = useRef({ pitch: null, yaw: null, irisY: null });
 
   // ตัวนับเฟรมสะสมสำหรับความนิ่ง (Smoothing filter)
   const lookDownBufferRef = useRef(0);
@@ -185,51 +241,113 @@ export function useFaceLandmarker() {
             const lm = results.faceLandmarks[0];
 
             // 1. คำนวณองศาการหันศีรษะ (Yaw) จากตำแหน่งจมูกเทียบกับแก้มซ้าย-ขวา
-            // landmark 234 (แก้มซ้าย), landmark 454 (แก้มขวา), landmark 1 (ปลายจมูก)
             const leftCheek = lm[234];
             const rightCheek = lm[454];
             const noseTip = lm[1];
             const faceWidth = Math.abs(rightCheek.x - leftCheek.x) || 0.001;
             const noseRatio = (noseTip.x - leftCheek.x) / faceWidth;
-            // หน้าตรง noseRatio อยู่ที่ประมาณ 0.50
-            const calculatedYaw = Math.round((noseRatio - 0.5) * 110);
+            const rawYaw = (noseRatio - 0.5) * 110;
 
-            // 2. คำนวณองศาการก้ม/เงย (Pitch) จากความลึกแกน Z และอัตราส่วนจมูก-คาง
-            // landmark 10 (หน้าผาก), landmark 152 (ปลายคาง), landmark 168 (ดั้งจมูก)
+            // 2. คำนวณองศาการก้ม/เงย (Pitch) จากอัตราส่วนจมูก-คาง และความลึกแกน Z
+            // ใน MediaPipe แกน -Z คือเข้าหากล้อง: ก้มหน้า -> หน้าผากใกล้กล้องกว่าคาง (forehead.z - chin.z < 0)
+            // เงยหน้า -> คางใกล้กล้องกว่าหน้าผาก (forehead.z - chin.z > 0)
+            // ดังนั้น pitch < 0 = ก้มหน้า, pitch > 0 = เงยหน้า
             const forehead = lm[10];
             const chin = lm[152];
-            const noseBridge = lm[168];
-            const faceHeight = Math.abs(chin.y - forehead.y) || 0.001;
             const upperDist = Math.abs(noseTip.y - forehead.y);
             const lowerDist = Math.abs(chin.y - noseTip.y);
             const verticalRatio = upperDist / (lowerDist || 0.001);
-            // ความลึกแกน Z (หน้าผากยื่นหรือคางยื่น)
-            const zTilt = (forehead.z - chin.z);
-            // คำนวณเป็นองศาก้ม/เงย (ติดลบ = ก้มหน้า, บวก = เงยหน้า)
-            const calculatedPitch = Math.round((verticalRatio - 1.25) * -45 + zTilt * -120);
+            const zTilt = forehead.z - chin.z;
+            const rawPitch = (verticalRatio - 1.25) * -45 + zTilt * 120;
 
-            setPoseAngles({ pitch: calculatedPitch, yaw: calculatedYaw });
+            // 3. วิเคราะห์ดวงตาทั้ง 2 ข้าง (ซ้าย + ขวา) เพื่อลดอาการแกว่งเมื่อเอียงหน้าหรือใส่แว่น
+            const lOpenH = Math.abs(lm[145].y - lm[159].y);
+            const lWidth = Math.abs(lm[133].x - lm[33].x) || 0.001;
+            const rOpenH = Math.abs(lm[374].y - lm[386].y);
+            const rWidth = Math.abs(lm[263].x - lm[362].x) || 0.001;
+            const eyeOpenRatio = (lOpenH / lWidth + rOpenH / rWidth) / 2;
 
-            // 3. วิเคราะห์ดวงตา (การกะพริบตา และ ตำแหน่งตาดำ Iris)
-            // ตาซ้าย: บน (159), ล่าง (145), หัวตา (133), หางตา (33), ตาดำ (468)
-            const eyeOpenHeight = Math.abs(lm[145].y - lm[159].y);
-            const eyeWidth = Math.abs(lm[133].x - lm[33].x) || 0.001;
-            const eyeOpenRatio = eyeOpenHeight / eyeWidth;
-            // ถ้าตี่/ปิดตามากกว่าปกติ = กำลังกะพริบตา
-            const isBlinking = eyeOpenRatio < 0.12;
+            const lIrisY = lm[468] ? (lm[468].y - lm[159].y) / (lOpenH || 0.001) : 0.5;
+            const rIrisY = lm[473] ? (lm[473].y - lm[386].y) / (rOpenH || 0.001) : lIrisY;
+            const rawIrisY = Math.max(0, Math.min(1, (lIrisY + rIrisY) / 2));
 
-            // ตำแหน่งตาดำในแนวตั้ง (0 = มองบน, 0.5 = มองตรง, 0.8+ = มองต่ำลงโพย)
-            const irisY = lm[468]?.y ?? noseTip.y;
-            const eyeTopY = lm[159].y;
-            const irisVerticalPos = (irisY - eyeTopY) / (eyeOpenHeight || 0.001);
+            // ดึง MediaPipe Blendshapes (eyeBlink / eyeLookDown) ถ้าโมเดลส่งมา
+            let blendBlink = 0;
+            let blendLookDown = 0;
+            const bsCats = results.faceBlendshapes?.[0]?.categories;
+            if (Array.isArray(bsCats) && bsCats.length > 0) {
+              let blinkL = 0;
+              let blinkR = 0;
+              let downL = 0;
+              let downR = 0;
+              for (const c of bsCats) {
+                if (c.categoryName === 'eyeBlinkLeft') blinkL = c.score;
+                else if (c.categoryName === 'eyeBlinkRight') blinkR = c.score;
+                else if (c.categoryName === 'eyeLookDownLeft') downL = c.score;
+                else if (c.categoryName === 'eyeLookDownRight') downR = c.score;
+              }
+              blendBlink = (blinkL + blinkR) / 2;
+              blendLookDown = (downL + downR) / 2;
+            }
 
-            // 4. ตัดสินสถานะแบบเฉียบคม:
-            // ก้มอ่านโพย = ก้มหน้าจริง (pitch < -11 องศา) หรือ (หน้าก้มเล็กน้อย + สายตามองต่ำชัดเจน irisVerticalPos > 0.65 โดยไม่ได้หลับตา)
-            const isLookingDownRaw = !isBlinking && (calculatedPitch < -11 || (calculatedPitch < -5 && irisVerticalPos > 0.65) || irisVerticalPos > 0.78);
-            // หันมองสไลด์/มองออกข้าง = หันหน้าชัดเจน (|yaw| > 16 องศา)
-            const isLookingAwayRaw = !isBlinking && Math.abs(calculatedYaw) > 16;
+            const isBlinking = eyeOpenRatio < 0.13 || blendBlink > 0.55;
 
-            // ใช้ Buffer สั้นๆ 4-5 เฟรม (~120ms) เพื่อความเนียน ไม่กระตุก
+            // EMA Smoothing (กรองสัญญาณให้นิ่ง ไม่กระตุก)
+            const alpha = 0.25;
+            if (smoothRef.current.pitch === null) {
+              smoothRef.current = { pitch: rawPitch, yaw: rawYaw, irisY: rawIrisY };
+            } else {
+              smoothRef.current.pitch += (rawPitch - smoothRef.current.pitch) * alpha;
+              smoothRef.current.yaw += (rawYaw - smoothRef.current.yaw) * alpha;
+              if (!isBlinking) {
+                smoothRef.current.irisY += (rawIrisY - smoothRef.current.irisY) * alpha;
+              }
+            }
+
+            // Auto-Calibrate อัตโนมัติในช่วง ~12 เฟรมแรกเมื่อเปิดกล้องครั้งแรก (ถ้ายังไม่เคยตั้งศูนย์)
+            if (!baselineRef.current && !isBlinking && Math.abs(smoothRef.current.yaw) < 25) {
+              autoCalibSamplesRef.current.push({
+                pitch: smoothRef.current.pitch,
+                yaw: smoothRef.current.yaw,
+                irisY: smoothRef.current.irisY,
+              });
+              if (autoCalibSamplesRef.current.length >= 12) {
+                const n = autoCalibSamplesRef.current.length;
+                const avg = autoCalibSamplesRef.current.reduce(
+                  (acc, s) => ({
+                    pitch: acc.pitch + s.pitch / n,
+                    yaw: acc.yaw + s.yaw / n,
+                    irisY: acc.irisY + s.irisY / n,
+                  }),
+                  { pitch: 0, yaw: 0, irisY: 0 },
+                );
+                baselineRef.current = avg;
+                saveBaseline(avg);
+                setCalibrated(true);
+              }
+            }
+
+            const base = baselineRef.current || { pitch: 0, yaw: 0, irisY: 0.5 };
+            const relPitch = Math.round(smoothRef.current.pitch - base.pitch);
+            const relYaw = Math.round(smoothRef.current.yaw - base.yaw);
+            const relIrisY = smoothRef.current.irisY - base.irisY;
+
+            setPoseAngles({ pitch: relPitch, yaw: relYaw });
+
+            // 4. ตัดสินสถานะโดยเทียบกับจุดศูนย์ของเครื่อง (ลด False Positive ตอนมองสไลด์บนจอ)
+            // ก้มอ่านโพย: ต้องไม่ได้กำลังเงยหน้าอยู่ (relPitch <= 4)
+            const isLookingDownRaw =
+              !isBlinking &&
+              relPitch <= 4 &&
+              (relPitch < -14 ||
+                (relPitch < -7 && (relIrisY > 0.14 || blendLookDown > 0.48)) ||
+                blendLookDown > 0.65 ||
+                relIrisY > 0.25);
+            // หันออกข้าง หรือ เงยหน้าหนีกล้องชัดเจน
+            const isLookingAwayRaw =
+              !isBlinking && (Math.abs(relYaw) > 20 || relPitch > 18);
+
+            // ใช้ Buffer 7 เฟรม (~250-300ms) เพื่อกันอาการกระพริบสถานะเวลาเหลือบตามองสไลด์แวบเดียว
             if (isLookingDownRaw) {
               lookDownBufferRef.current += 1;
               lookAwayBufferRef.current = 0;
@@ -244,19 +362,19 @@ export function useFaceLandmarker() {
             // แสดงผลสถานะ
             let isEyeContactNow = false;
 
-            if (lookDownBufferRef.current >= 4) {
+            if (lookDownBufferRef.current >= 7) {
               setCurrentStatus('looking_down');
               isEyeContactNow = false;
               if (isTrackingRef.current) {
                 lookingDownFramesRef.current += 1;
                 lookDownTotalSecRef.current += deltaSec;
-                if (!inLookDownInstanceRef.current && lookDownBufferRef.current === 4) {
+                if (!inLookDownInstanceRef.current && lookDownBufferRef.current === 7) {
                   inLookDownInstanceRef.current = true;
                   lookDownCountRef.current += 1;
                   setLookingDownCount(lookDownCountRef.current);
                 }
               }
-            } else if (lookAwayBufferRef.current >= 4) {
+            } else if (lookAwayBufferRef.current >= 7) {
               setCurrentStatus('looking_away');
               isEyeContactNow = false;
               inLookDownInstanceRef.current = false;
@@ -347,6 +465,31 @@ export function useFaceLandmarker() {
     };
   }, []);
 
+  // ตั้งศูนย์สายตาด้วยตนเอง (เรียกเมื่อผู้ใช้มองกล้องตรงๆ แล้วกดปุ่ม "ตั้งศูนย์")
+  const calibrate = useCallback(() => {
+    if (smoothRef.current.pitch === null) return false;
+    const next = {
+      pitch: smoothRef.current.pitch,
+      yaw: smoothRef.current.yaw,
+      irisY: smoothRef.current.irisY ?? 0.5,
+    };
+    baselineRef.current = next;
+    autoCalibSamplesRef.current = [];
+    lookDownBufferRef.current = 0;
+    lookAwayBufferRef.current = 0;
+    saveBaseline(next);
+    saveManualCalibrated();
+    setCalibrated(true);
+    setManualCalibrated(true);
+    setPoseAngles({ pitch: 0, yaw: 0 });
+    return true;
+  }, []);
+
+  const dismissCalibrationTip = useCallback(() => {
+    saveManualCalibrated();
+    setManualCalibrated(true);
+  }, []);
+
   return {
     videoRef,
     setVideoRef,
@@ -358,6 +501,10 @@ export function useFaceLandmarker() {
     eyeContactPct,
     lookingDownCount,
     poseAngles,
+    calibrated,
+    manualCalibrated,
+    calibrate,
+    dismissCalibrationTip,
     startCamera,
     attachExternalStream,
     stopCamera,

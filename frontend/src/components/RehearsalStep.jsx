@@ -150,6 +150,7 @@ export default function RehearsalStep({
   const [mobileTranscript, setMobileTranscript] = useState({ finalText: '', interim: '', listening: false });
   const [hideLiveCoach, setHideLiveCoach] = useState(rehearsalMode === 'continuous');
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [calibSuccessMsg, setCalibSuccessMsg] = useState(false);
 
   const startedAt = useRef(0);
   const segmentStartAt = useRef(0);
@@ -1031,14 +1032,52 @@ export default function RehearsalStep({
                 </div>
               )
             ) : (
-              <button
-                onClick={start}
-                disabled={!speech.supported}
-                className="flex items-center justify-center gap-2 rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 disabled:opacity-40 cursor-pointer"
-              >
-                <MicIcon />
-                {isContinuous ? 'เริ่มซ้อมใหญ่' : 'เริ่มพูด'}
-              </button>
+              <div className="space-y-2.5">
+                {cameraEnabled && vision.cameraActive && !vision.manualCalibrated && (
+                  <div className="rounded-xl border border-accent/30 bg-accent/5 p-3.5 text-xs space-y-2">
+                    <p className="font-semibold text-ink">
+                      แนะนำ: ตั้งศูนย์กล้องครั้งแรก (ช่วยให้จับสายตาแม่นยำขึ้น)
+                    </p>
+                    <p className="leading-relaxed text-muted">
+                      นั่งท่าปกติ แล้ว<strong className="text-ink">มองตรงไปที่เลนส์กล้องด้านบนหน้าจอ</strong> จากนั้นกดปุ่มด้านล่าง 1 ครั้ง (ทำแค่ครั้งแรกครั้งเดียว)
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (vision.calibrate?.()) {
+                            setCalibSuccessMsg(true);
+                            setTimeout(() => setCalibSuccessMsg(false), 3000);
+                          }
+                        }}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent/90 cursor-pointer"
+                      >
+                        มองกล้องแล้ว · ตั้งศูนย์เลย
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => vision.dismissCalibrationTip?.()}
+                        className="rounded-lg px-2.5 py-1.5 text-xs text-muted transition hover:text-ink cursor-pointer"
+                      >
+                        ข้ามไปก่อน
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {calibSuccessMsg && (
+                  <div className="rounded-xl border border-ok/30 bg-ok/10 px-3.5 py-2 text-xs font-medium text-ok">
+                    ตั้งศูนย์กล้องเรียบร้อย ✓ พร้อมกดเริ่มพูดได้เลยครับ
+                  </div>
+                )}
+                <button
+                  onClick={start}
+                  disabled={!speech.supported}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-ink py-3 text-sm font-medium text-paper transition hover:bg-ink/85 disabled:opacity-40 cursor-pointer"
+                >
+                  <MicIcon />
+                  {isContinuous ? 'เริ่มซ้อมใหญ่' : 'เริ่มพูด'}
+                </button>
+              </div>
             )}
           </div>
 

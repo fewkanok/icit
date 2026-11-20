@@ -6,6 +6,7 @@ export default function FloatingCamera({ vision, live }) {
   const [width, setWidth] = useState(240);
   const [minimized, setMinimized] = useState(false);
   const [hasInitPos, setHasInitPos] = useState(false);
+  const [justCalibrated, setJustCalibrated] = useState(false);
 
   const dragRef = useRef({
     isDragging: false,
@@ -258,9 +259,23 @@ export default function FloatingCamera({ vision, live }) {
                 style={{ width: `${vision.currentStatus === 'no_face' ? 0 : vision.eyeContactPct}%` }}
               />
             </div>
-            <div className="flex justify-between text-[10px] text-faint font-mono pt-0.5">
-              <span>ก้ม/เงย: {vision.poseAngles.pitch}°</span>
-              <span>หันซ้าย/ขวา: {vision.poseAngles.yaw}°</span>
+            <div className="flex items-center justify-between gap-2 pt-0.5 text-[10px] text-faint font-mono">
+              <span>ก้ม/เงย: {vision.poseAngles.pitch}° · หัน: {vision.poseAngles.yaw}°</span>
+              {vision.calibrate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (vision.calibrate()) {
+                      setJustCalibrated(true);
+                      setTimeout(() => setJustCalibrated(false), 1800);
+                    }
+                  }}
+                  title="มองตรงไปที่เลนส์กล้องด้านบนจอ แล้วกดเพื่อตั้งจุดศูนย์ใหม่ให้ตรงกับมุมกล้องของคุณ"
+                  className="shrink-0 rounded border border-line bg-paper px-1.5 py-0.5 font-sans text-[10px] font-medium text-ink transition hover:border-ink cursor-pointer"
+                >
+                  {justCalibrated ? 'ตั้งศูนย์แล้ว ✓' : 'ตั้งศูนย์กล้อง'}
+                </button>
+              )}
             </div>
           </div>
 
