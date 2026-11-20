@@ -362,7 +362,9 @@ export default function GroupSummaryView({
       eyeContactPct: m.eyeCount ? Math.round(m.eyeSum / m.eyeCount) : null,
     }));
 
-    const qaAnswered = qaQuestions.filter((_, i) => qaAnswers[i]?.answerTranscript?.trim());
+    const qaAnswered = qaQuestions.filter((_, i) =>
+      (qaAnswers[i]?.transcript || qaAnswers[i]?.answerTranscript || '').trim(),
+    );
     const qaDirect = qaQuestions.filter((_, i) => qaEvaluations[i]?.directness === 'direct');
 
     return {
@@ -451,7 +453,7 @@ export default function GroupSummaryView({
         }),
         qaJson: qaQuestions.map((q, idx) => ({
           question: q.question,
-          answerTranscript: qaAnswers[idx]?.answerTranscript || '',
+          answerTranscript: qaAnswers[idx]?.transcript || qaAnswers[idx]?.answerTranscript || '',
           responderName: qaAnswers[idx]?.responderName || null,
           ...(qaEvaluations[idx] || {}),
         })),
@@ -1410,9 +1412,9 @@ export default function GroupSummaryView({
         initialIsPublic={shareMeta.isPublic}
         deckName={room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม'}
         isGroup
-        totalDurationSec={Math.floor(stats.totalDuration)}
-        avgWpm={stats.avgWpm}
-        avgEyeContactPct={stats.avgEye}
+        totalDurationSec={groupRoundSnapshot.totalDurationSec}
+        avgWpm={groupRoundSnapshot.avgWpm}
+        avgEyeContactPct={groupRoundSnapshot.eyeContactPct}
         referralCode={user?.referralCode || ''}
         onShareUpdated={(res) => {
           setShareMeta({ shareId: res.shareId || '', isPublic: Boolean(res.isPublic) });

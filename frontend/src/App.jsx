@@ -7,16 +7,43 @@ import { analyze } from './lib/metrics';
 import { API_BASE, fetchLangmindPreset, fetchMe } from './lib/api';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
 
-const UploadStep = lazy(() => import('./components/UploadStep'));
-const RehearsalStep = lazy(() => import('./components/RehearsalStep'));
-const QaStep = lazy(() => import('./components/QaStep'));
-const SummaryStep = lazy(() => import('./components/SummaryStep'));
-const RemotePage = lazy(() => import('./components/RemotePage'));
-const PublicSharePage = lazy(() => import('./components/PublicSharePage'));
-const GroupLobbyStep = lazy(() => import('./components/GroupLobbyStep'));
-const WalletModal = lazy(() => import('./components/WalletModal'));
-const HistoryModal = lazy(() => import('./components/HistoryModal'));
-const PrivacyPage = lazy(() => import('./components/PrivacyPage'));
+function lazyWithRetry(importer) {
+  return lazy(async () => {
+    try {
+      const mod = await importer();
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem('zomgon_chunk_reloaded');
+      }
+      return mod;
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      const isChunkError =
+        /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError/i.test(
+          msg,
+        );
+      if (isChunkError && typeof window !== 'undefined') {
+        const alreadyReloaded = window.sessionStorage.getItem('zomgon_chunk_reloaded') === '1';
+        if (!alreadyReloaded) {
+          window.sessionStorage.setItem('zomgon_chunk_reloaded', '1');
+          window.location.reload();
+          return new Promise(() => {});
+        }
+      }
+      throw err;
+    }
+  });
+}
+
+const UploadStep = lazyWithRetry(() => import('./components/UploadStep'));
+const RehearsalStep = lazyWithRetry(() => import('./components/RehearsalStep'));
+const QaStep = lazyWithRetry(() => import('./components/QaStep'));
+const SummaryStep = lazyWithRetry(() => import('./components/SummaryStep'));
+const RemotePage = lazyWithRetry(() => import('./components/RemotePage'));
+const PublicSharePage = lazyWithRetry(() => import('./components/PublicSharePage'));
+const GroupLobbyStep = lazyWithRetry(() => import('./components/GroupLobbyStep'));
+const WalletModal = lazyWithRetry(() => import('./components/WalletModal'));
+const HistoryModal = lazyWithRetry(() => import('./components/HistoryModal'));
+const PrivacyPage = lazyWithRetry(() => import('./components/PrivacyPage'));
 
 function LazyFallback() {
   return (
