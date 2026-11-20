@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 const EDGE_TTS_CACHE_MAX = 120;
+const EDGE_TTS_FAILURE_THRESHOLD = 2;
+const EDGE_TTS_COOLDOWN_MS = 10 * 60 * 1000; // พัก 10 นาทีเมื่อ EdgeTTS ล้มเหลวติดกัน
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -13,6 +15,8 @@ export class AppService {
   private readonly edgeTtsCache = new Map<string, string>();
   private readonly edgeTtsPending = new Map<string, Promise<{ audioDataUrl: string }>>();
   private edgeTtsQueue: Promise<void> = Promise.resolve();
+  private edgeTtsConsecutiveFailures = 0;
+  private edgeTtsOpenUntil = 0;
   private iceServersCache: { servers: unknown[]; expiresAt: number } | null = null;
 
   getHello(): string {
@@ -129,6 +133,11 @@ export class AppService {
       return { audioDataUrl: cached };
     }
 
+    // Circuit Breaker: ถ้า EdgeTTS ล้มเหลวติดกัน ให้ส่งกลับทันทีเพื่อให้เบราว์เซอร์อ่านเสียงโดยไม่ดีเลย์
+    if (Date.now() < this.edgeTtsOpenUntil) {
+      return { audioDataUrl: '' };
+    }
+
     const pending = this.edgeTtsPending.get(clean);
     if (pending) {
       return pending;
@@ -140,7 +149,11 @@ export class AppService {
         return { audioDataUrl: cachedAfterQueue };
       }
 
-      const backoffMs = [400, 900];
+      if (Date.now() < this.edgeTtsOpenUntil) {
+        return { audioDataUrl: '' };
+      }
+
+      const backoffMs = [400];
       let audioDataUrl = '';
       let lastErr: unknown = null;
 
@@ -158,10 +171,21 @@ export class AppService {
       }
 
       if (!audioDataUrl) {
+        this.edgeTtsConsecutiveFailures += 1;
         const msg = lastErr instanceof Error ? lastErr.message : String(lastErr || 'unknown error');
-        console.warn(`[EdgeTTS] Fallback to browser speech: ${msg}`);
+        if (this.edgeTtsConsecutiveFailures >= EDGE_TTS_FAILURE_THRESHOLD) {
+          this.edgeTtsOpenUntil = Date.now() + EDGE_TTS_COOLDOWN_MS;
+          console.warn(
+            `[EdgeTTS] Circuit breaker opened for 10m after ${this.edgeTtsConsecutiveFailures} failures (${msg}); falling back to browser speech immediately.`,
+          );
+        } else {
+          console.warn(`[EdgeTTS] Fallback to browser speech: ${msg}`);
+        }
         return { audioDataUrl: '' };
       }
+
+      this.edgeTtsConsecutiveFailures = 0;
+      this.edgeTtsOpenUntil = 0;
 
       if (this.edgeTtsCache.size >= EDGE_TTS_CACHE_MAX) {
         const firstKey = this.edgeTtsCache.keys().next().value;
