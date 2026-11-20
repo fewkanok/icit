@@ -66,8 +66,9 @@ export default function ModeStep({
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-4xl break-words">
           ซ้อมพรีเซนต์งานอย่างมั่นใจ
         </h1>
-        <p className="mx-auto max-w-2xl text-sm sm:text-base text-muted break-words">
-          เลือกรูปแบบการซ้อมที่เหมาะกับงานของคุณ ระบบจะช่วยวิเคราะห์จังหวะพูด สายตา และจำลองถาม-ตอบ Q&amp;A
+        <p className="mx-auto max-w-3xl text-sm sm:text-base text-muted break-words">
+          เลือกรูปแบบการซ้อมที่เหมาะกับงานของคุณ ระบบจะช่วยวิเคราะห์จังหวะพูด สายตา และจำลองถาม-ตอบ{' '}
+          <span className="whitespace-nowrap">Q&amp;A</span>
         </p>
       </div>
 

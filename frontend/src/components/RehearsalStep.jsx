@@ -110,6 +110,8 @@ function LiveWaveform({ volume, isDeadAir }) {
 }
 
 export default function RehearsalStep({
+  user = null,
+  onSignIn,
   deck,
   rehearsalMode = 'per_slide',
   audience,
@@ -126,8 +128,13 @@ export default function RehearsalStep({
   onBack,
   onFinish,
   initialIndex = 0,
+  onIndexChange,
 }) {
   const [index, setIndex] = useState(initialIndex);
+
+  useEffect(() => {
+    onIndexChange?.(index);
+  }, [index, onIndexChange]);
   const [elapsed, setElapsed] = useState(0);
   const [liveWpm, setLiveWpm] = useState(0);
   const [aiChecking, setAiChecking] = useState(false);
@@ -480,10 +487,20 @@ export default function RehearsalStep({
 
   async function handleCheckSlide() {
     if (!result || aiChecking) return;
+    if (!user) {
+      const goSignIn = await askConfirm({
+        title: 'เข้าสู่ระบบเพื่อใช้ฟีเจอร์ AI',
+        message: 'กรุณาเข้าสู่ระบบด้วย Google ก่อนใช้งานฟีเจอร์ AI (สมาชิกใหม่รับฟรี 30 Tokens)',
+        confirmText: 'เข้าสู่ระบบด้วย Google',
+        cancelText: 'ไว้ทีหลัง',
+      });
+      if (goSignIn) onSignIn?.();
+      return;
+    }
     const ok = await askConfirm({
       key: 'token-spend',
       title: 'ยืนยันการใช้ 1 Token',
-      message: 'ระบบจะใช้ 1 Token เพื่อวิเคราะห์ความตรงสไลด์ในหน้านี้ด้วย AI',
+      message: `ระบบจะใช้ 1 Token เพื่อวิเคราะห์ความตรงสไลด์ในหน้านี้ด้วย AI (คงเหลือปัจจุบัน: ${user.tokenBalance ?? 0} Tokens)`,
       confirmText: 'ใช้ 1 Token',
     });
     if (!ok) return;
@@ -973,10 +990,20 @@ export default function RehearsalStep({
                   </button>
                   <button
                     onClick={async () => {
+                      if (!user) {
+                        const goSignIn = await askConfirm({
+                          title: 'เข้าสู่ระบบเพื่อใช้ฟีเจอร์ AI',
+                          message: 'กรุณาเข้าสู่ระบบด้วย Google ก่อนเข้าช่วงถาม-ตอบ Q&A ด้วย AI (สมาชิกใหม่รับฟรี 30 Tokens)',
+                          confirmText: 'เข้าสู่ระบบด้วย Google',
+                          cancelText: 'ไว้ทีหลัง',
+                        });
+                        if (goSignIn) onSignIn?.();
+                        return;
+                      }
                       const ok = await askConfirm({
                         key: 'token-spend',
                         title: 'ยืนยันการใช้ 1 Token',
-                        message: 'ระบบจะใช้ 1 Token เพื่อสร้างชุดคำถามช่วงถาม-ตอบ (Q&A)',
+                        message: `ระบบจะใช้ 1 Token เพื่อสร้างชุดคำถามช่วงถาม-ตอบ (Q&A) (คงเหลือปัจจุบัน: ${user.tokenBalance ?? 0} Tokens)`,
                         confirmText: 'ใช้ 1 Token',
                       });
                       if (ok) onFinish(false);

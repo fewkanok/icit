@@ -1,21 +1,33 @@
-import { Component, useEffect, useMemo, useState } from 'react';
+import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import ModeStep from './components/ModeStep';
-import UploadStep from './components/UploadStep';
-import RehearsalStep from './components/RehearsalStep';
-import QaStep from './components/QaStep';
-import SummaryStep from './components/SummaryStep';
-import RemotePage from './components/RemotePage';
-import PublicSharePage from './components/PublicSharePage';
-import GroupLobbyStep from './components/GroupLobbyStep';
-import WalletModal from './components/WalletModal';
-import HistoryModal from './components/HistoryModal';
-import { OfflineBanner, SessionExpiredNotice } from './components/ui/StateViews';
-import { ConfirmDialogHost, resetConfirmSuppressions } from './components/ConfirmModal';
+import { OfflineBanner, ServerWakeBanner, SessionExpiredNotice } from './components/ui/StateViews';
+import { ConfirmDialogHost, askConfirm, resetConfirmSuppressions } from './components/ConfirmModal';
 import { analyze } from './lib/metrics';
-import { fetchLangmindPreset, fetchMe } from './lib/api';
-import { filesToSlides } from './lib/slides';
+import { API_BASE, fetchLangmindPreset, fetchMe } from './lib/api';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
+
+const UploadStep = lazy(() => import('./components/UploadStep'));
+const RehearsalStep = lazy(() => import('./components/RehearsalStep'));
+const QaStep = lazy(() => import('./components/QaStep'));
+const SummaryStep = lazy(() => import('./components/SummaryStep'));
+const RemotePage = lazy(() => import('./components/RemotePage'));
+const PublicSharePage = lazy(() => import('./components/PublicSharePage'));
+const GroupLobbyStep = lazy(() => import('./components/GroupLobbyStep'));
+const WalletModal = lazy(() => import('./components/WalletModal'));
+const HistoryModal = lazy(() => import('./components/HistoryModal'));
+const PrivacyPage = lazy(() => import('./components/PrivacyPage'));
+
+function LazyFallback() {
+  return (
+    <div className="mx-auto flex max-w-5xl items-center justify-center px-6 py-20">
+      <div className="inline-flex items-center gap-2.5 rounded-xl border border-line bg-white px-4 py-2.5 text-xs font-medium text-muted shadow-xs">
+        <span className="size-2 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+        <span>กำลังโหลดหน้า...</span>
+      </div>
+    </div>
+  );
+}
 
 class AppErrorBoundary extends Component {
   constructor(props) {
@@ -61,6 +73,9 @@ class AppErrorBoundary extends Component {
 }
 
 export default function App() {
+  const isPrivacyPage =
+    typeof window !== 'undefined' && /^\/privacy\/?$/i.test(window.location.pathname);
+
   const publicShareId =
     typeof window !== 'undefined'
       ? (() => {
@@ -157,6 +172,42 @@ export default function App() {
       return [];
     }
   });
+
+  const [serverWaking, setServerWaking] = useState(false);
+  const [serverWakeSec, setServerWakeSec] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isPrivacyPage) return undefined;
+    let active = true;
+    const startedAt = Date.now();
+    const showTimer = setTimeout(() => {
+      if (active) setServerWaking(true);
+    }, 3500);
+    const tickTimer = setInterval(() => {
+      if (active) {
+        setServerWakeSec(Math.floor((Date.now() - startedAt) / 1000));
+      }
+    }, 1000);
+
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 60000);
+    fetch(`${API_BASE}/`, { signal: controller.signal })
+      .catch(() => {})
+      .finally(() => {
+        clearTimeout(showTimer);
+        clearTimeout(abortTimer);
+        clearInterval(tickTimer);
+        if (active) setServerWaking(false);
+      });
+
+    return () => {
+      active = false;
+      clearTimeout(showTimer);
+      clearTimeout(abortTimer);
+      clearInterval(tickTimer);
+      controller.abort();
+    };
+  }, [isPrivacyPage]);
 
   useEffect(() => {
     const onTokensUpdated = (e) => {
@@ -299,6 +350,7 @@ export default function App() {
             fetchPdfBlob()
               .then(async (blob) => {
                 const pdfFile = new File([blob], `${topic}.pdf`, { type: 'application/pdf' });
+                const { filesToSlides } = await import('./lib/slides');
                 const pdfSlides = await filesToSlides([pdfFile], (done, total) =>
                   setLinePdfLoading({ done, total }),
                 );
@@ -475,6 +527,7 @@ export default function App() {
             if (!res.ok) throw new Error('ไม่สามารถดึงไฟล์ PDF จาก LINE ได้');
             const blob = await res.blob();
             const pdfFile = new File([blob], `${topic}.pdf`, { type: 'application/pdf' });
+            const { filesToSlides } = await import('./lib/slides');
             const pdfSlides = await filesToSlides([pdfFile]);
             const merged = pdfSlides.map((s, idx) => {
               const sc = parsedSlides[idx];
@@ -644,12 +697,28 @@ export default function App() {
     };
   }, [step, deck?.name, rehearsalMode, audience, results]);
 
+  if (isPrivacyPage) {
+    return (
+      <Suspense fallback={<LazyFallback />}>
+        <PrivacyPage />
+      </Suspense>
+    );
+  }
+
   if (publicShareId) {
-    return <PublicSharePage shareId={publicShareId} />;
+    return (
+      <Suspense fallback={<LazyFallback />}>
+        <PublicSharePage shareId={publicShareId} />
+      </Suspense>
+    );
   }
 
   if (remoteCode) {
-    return <RemotePage code={remoteCode.trim().toUpperCase()} />;
+    return (
+      <Suspense fallback={<LazyFallback />}>
+        <RemotePage code={remoteCode.trim().toUpperCase()} />
+      </Suspense>
+    );
   }
 
   const allQaResults = [
@@ -684,7 +753,20 @@ export default function App() {
         onSignOut={handleSignOut}
         onOpenWallet={() => setWalletOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
-        onGoHome={() => {
+        onGoHome={async () => {
+          const hasRecording =
+            (step === 'rehearsal' || step === 'qa' || step === 'summary') &&
+            Object.keys(results).length > 0;
+          if (hasRecording) {
+            const ok = await askConfirm({
+              title: 'กลับหน้าแรก?',
+              message: 'ข้อมูลการซ้อมและเสียงที่ยังไม่ได้บันทึกจะหายไป ยืนยันที่จะกลับหน้าแรกหรือไม่?',
+              confirmText: 'กลับหน้าแรก',
+              cancelText: 'อยู่หน้านี้ต่อ',
+              danger: true,
+            });
+            if (!ok) return;
+          }
           setHistoryOpen(false);
           setSoloRoundsHistory([]);
           setCompareAiCache({});
@@ -705,6 +787,7 @@ export default function App() {
       {!isOnline && (
         <OfflineBanner onRetry={() => setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)} />
       )}
+      {isOnline && serverWaking && <ServerWakeBanner elapsedSec={serverWakeSec} />}
       {sessionExpired && (
         <SessionExpiredNotice
           onSignIn={() => {
@@ -716,6 +799,7 @@ export default function App() {
       )}
       <AppErrorBoundary>
         <main className="flex-1">
+        <Suspense fallback={<LazyFallback />}>
         {historyOpen && (
           <HistoryModal
             open={historyOpen}
@@ -817,11 +901,14 @@ export default function App() {
 
         {step === 'rehearsal' && activeDeck && (
           <RehearsalStep
+            user={user}
+            onSignIn={handleSignIn}
             deck={activeDeck}
             rehearsalMode={rehearsalMode}
             audience={audience}
             timeBudget={timeBudget}
             initialIndex={rehearsalIndex}
+            onIndexChange={setRehearsalIndex}
             results={results}
             onResult={(i, r) => {
               setResults((prev) => ({ ...prev, [i]: r }));
@@ -859,6 +946,7 @@ export default function App() {
         {step === 'summary' && activeDeck && (
           <SummaryStep
             user={user}
+            onSignIn={handleSignIn}
             deck={activeDeck}
             audience={audience}
             rehearsalMode={rehearsalMode}
@@ -926,16 +1014,31 @@ export default function App() {
           />
         )}
           </div>
+        </Suspense>
         </main>
       </AppErrorBoundary>
 
-      <WalletModal
-        open={walletOpen}
-        onClose={() => setWalletOpen(false)}
-        onBalanceChange={(bal) =>
-          setUser((prev) => (prev ? { ...prev, tokenBalance: bal } : prev))
-        }
-      />
+      <footer className="border-t border-line/60 bg-paper/60 px-4 py-4 text-center text-xs text-muted">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <span>Zomgon</span>
+          <span aria-hidden="true">·</span>
+          <a href="/privacy" className="underline-offset-2 transition hover:text-ink hover:underline">
+            นโยบายความเป็นส่วนตัว
+          </a>
+        </div>
+      </footer>
+
+      {walletOpen && (
+        <Suspense fallback={null}>
+          <WalletModal
+            open={walletOpen}
+            onClose={() => setWalletOpen(false)}
+            onBalanceChange={(bal) =>
+              setUser((prev) => (prev ? { ...prev, tokenBalance: bal } : prev))
+            }
+          />
+        </Suspense>
+      )}
       <ConfirmDialogHost />
     </div>
   );

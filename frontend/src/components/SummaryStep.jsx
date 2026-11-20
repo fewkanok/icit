@@ -31,6 +31,7 @@ function getSlideText(slide) {
 
 export default function SummaryStep({
   user,
+  onSignIn,
   deck,
   audience,
   rehearsalMode = 'per_slide',
@@ -1031,14 +1032,22 @@ export default function SummaryStep({
           </div>
           <div className="mt-2 flex items-baseline gap-2.5">
             <p className="font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">
-              {totalFillers > 0 ? totalFillers : '0'}
+              {avgWpm === 0 && totalFillers === 0 ? '–' : totalFillers > 0 ? totalFillers : '0'}
             </p>
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                totalFillers === 0 ? 'bg-ok/10 text-ok' : 'bg-paper text-muted'
+                avgWpm === 0 && totalFillers === 0
+                  ? 'bg-paper text-muted'
+                  : totalFillers === 0
+                    ? 'bg-ok/10 text-ok'
+                    : 'bg-paper text-muted'
               }`}
             >
-              {totalFillers === 0 ? 'พูดลื่นไหลดีมาก' : 'ครั้ง'}
+              {avgWpm === 0 && totalFillers === 0
+                ? 'ไม่มีข้อมูลเสียงพูด'
+                : totalFillers === 0
+                  ? 'พูดลื่นไหลดีมาก'
+                  : 'ครั้ง'}
             </span>
           </div>
         </div>
@@ -1641,22 +1650,32 @@ export default function SummaryStep({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          {user && (
+          {user ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setShareModalOpen(true)}
+                className="rounded-lg bg-ink px-4 py-2 text-xs font-semibold text-paper transition hover:bg-ink/90 cursor-pointer"
+              >
+                แชร์ผลการซ้อม (LINE / X / ลิงก์)
+              </button>
+              {referralUrl && (
+                <button
+                  type="button"
+                  onClick={handleCopyReferral}
+                  className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink cursor-pointer"
+                >
+                  {refCopied ? 'คัดลอกลิงก์ชวนเพื่อนแล้ว' : 'คัดลอกลิงก์ชวนเพื่อน (+10 Tokens)'}
+                </button>
+              )}
+            </>
+          ) : (
             <button
               type="button"
-              onClick={() => setShareModalOpen(true)}
+              onClick={() => onSignIn?.()}
               className="rounded-lg bg-ink px-4 py-2 text-xs font-semibold text-paper transition hover:bg-ink/90 cursor-pointer"
             >
-              แชร์ผลการซ้อม (LINE / X / ลิงก์)
-            </button>
-          )}
-          {referralUrl && (
-            <button
-              type="button"
-              onClick={handleCopyReferral}
-              className="rounded-lg border border-line bg-paper px-3.5 py-2 text-xs font-medium text-ink transition hover:border-ink cursor-pointer"
-            >
-              {refCopied ? 'คัดลอกลิงก์ชวนเพื่อนแล้ว' : 'คัดลอกลิงก์ชวนเพื่อน (+10 Tokens)'}
+              เข้าสู่ระบบด้วย Google เพื่อแชร์ผลและรับโบนัส Token
             </button>
           )}
         </div>

@@ -78,6 +78,28 @@ export function OfflineBanner({ onRetry }) {
   );
 }
 
+export function ServerWakeBanner({ elapsedSec = 0 }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="border-b border-line bg-paper px-4 py-2 text-xs text-ink sm:px-6"
+    >
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <span className="flex items-center gap-2">
+          <span className="size-2 shrink-0 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+          <span>
+            กำลังปลุกเซิร์ฟเวอร์ AI (ครั้งแรกอาจใช้เวลาประมาณ 20–40 วินาที) กรุณารอสักครู่...
+          </span>
+        </span>
+        {elapsedSec > 0 && (
+          <span className="shrink-0 font-mono text-[11px] text-muted">{elapsedSec}s</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SessionExpiredNotice({ onSignIn, onDismiss }) {
   return (
     <div

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 export default function FloatingCamera({ vision, live }) {
-  // ตำแหน่งเริ่มต้น: ขวาล่างของจอ
+  // ตำแหน่งเริ่มต้น: ซ้ายล่างของจอ (ไม่บังปุ่มควบคุมหลักด้านขวา)
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [width, setWidth] = useState(268); // ความกว้างเริ่มต้น 268px (ไม่บังปุ่มควบคุม)
+  const [width, setWidth] = useState(240);
   const [minimized, setMinimized] = useState(false);
   const [hasInitPos, setHasInitPos] = useState(false);
 
@@ -21,11 +21,11 @@ export default function FloatingCamera({ vision, live }) {
     startWidth: 320,
   });
 
-  // ตั้งค่าตำแหน่งเริ่มต้นให้อยู่ชิดขวาล่างของจอ (ไม่บังแถบเครื่องมือด้านบนหรือปุ่มหลัก)
+  // ตั้งค่าตำแหน่งเริ่มต้นให้อยู่ชิดซ้ายล่างของจอ (ไม่บังปุ่ม "ถัดไป" / "เริ่มพูด" / "AI" ด้านขวา)
   useEffect(() => {
     if (!hasInitPos && typeof window !== 'undefined') {
-      const initX = Math.max(16, window.innerWidth - 296);
-      const initY = Math.max(90, window.innerHeight - 250);
+      const initX = 16;
+      const initY = Math.max(84, window.innerHeight - 235);
       setPosition({ x: initX, y: initY });
       setHasInitPos(true);
     }
@@ -190,7 +190,7 @@ export default function FloatingCamera({ vision, live }) {
             onClick={vision.stopCamera}
             disabled={live}
             className="flex size-5 items-center justify-center rounded text-muted hover:bg-line/60 hover:text-accent cursor-pointer text-xs disabled:opacity-30"
-            title="ปิดกล้อง"
+            title={live ? 'หยุดอัดก่อนเพื่อปิดกล้อง' : 'ปิดกล้อง'}
           >
             ✕
           </button>
@@ -247,9 +247,15 @@ export default function FloatingCamera({ vision, live }) {
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
               <div
                 className={`h-full transition-all duration-200 ${
-                  vision.eyeContactPct >= 70 ? 'bg-ok' : vision.eyeContactPct >= 45 ? 'bg-slow' : 'bg-accent'
+                  vision.currentStatus === 'no_face'
+                    ? 'bg-faint/50'
+                    : vision.eyeContactPct >= 70
+                      ? 'bg-ok'
+                      : vision.eyeContactPct >= 45
+                        ? 'bg-slow'
+                        : 'bg-accent'
                 }`}
-                style={{ width: `${vision.eyeContactPct}%` }}
+                style={{ width: `${vision.currentStatus === 'no_face' ? 0 : vision.eyeContactPct}%` }}
               />
             </div>
             <div className="flex justify-between text-[10px] text-faint font-mono pt-0.5">

@@ -262,7 +262,7 @@ export default function UploadStep({
         ) : !deck ? (
           <EmptyState
             title="ยังไม่มีสไลด์ในขั้นตอนนี้"
-            description="อัปโหลดไฟล์ PDF หรือรูปภาพทางด้านซ้าย หรือทดลองใช้สไลด์แนะนำตัว 2 หน้าเพื่อเริ่มซ้อมได้ทันที"
+            description="อัปโหลดไฟล์ PDF หรือรูปภาพในช่องอัปโหลด หรือทดลองใช้สไลด์แนะนำตัว 2 หน้าเพื่อเริ่มซ้อมได้ทันที"
             actionLabel="ทดลองใช้สไลด์แนะนำตัว (2 หน้า)"
             onAction={() => {
               onDeckChange(SAMPLE_DECK);
