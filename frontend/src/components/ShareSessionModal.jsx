@@ -37,7 +37,7 @@ export default function ShareSessionModal({
   const shareSummaryText = useMemo(() => {
     const title = deckName || 'ชุดสไลด์';
     const wpm = avgWpm || 0;
-    return `ลองซ้อมพรีเซนต์ "${title}" บน Zomgon ดู ได้ ${wpm} คำ/นาที แวะเข้ามาดูผลหรือลองซ้อมฟรีได้ที่นี่:`;
+    return `ลองซ้อมพรีเซนต์ "${title}" บน ZomGon ดู ได้ ${wpm} คำ/นาที แวะเข้ามาดูผลหรือลองซ้อมฟรีได้ที่นี่:`;
   }, [deckName, avgWpm]);
 
   if (!open) return null;
@@ -83,7 +83,7 @@ export default function ShareSessionModal({
     if (!canNativeShare || !shareUrl) return;
     try {
       await navigator.share({
-        title: `Zomgon - สรุปผลซ้อมพรีเซนต์: ${deckName || 'Zomgon'}`,
+        title: `ZomGon - สรุปผลซ้อมพรีเซนต์: ${deckName || 'ZomGon'}`,
         text: shareSummaryText,
         url: shareUrl,
       });

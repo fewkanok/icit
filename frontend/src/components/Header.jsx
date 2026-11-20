@@ -39,7 +39,7 @@ export default function Header({
             title="กลับหน้าแรก"
           >
             <span className="size-2.5 shrink-0 rounded-full bg-accent" />
-            <span className="truncate text-sm sm:text-base font-semibold tracking-tight text-ink">Zomgon</span>
+            <span className="truncate text-sm sm:text-base font-semibold tracking-tight text-ink">ZomGon</span>
           </button>
           {step === 'group' && <ModeBadge mode="group" />}
           {step !== 'mode' && step !== 'group' && <ModeBadge mode="solo" />}

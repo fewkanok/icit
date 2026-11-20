@@ -334,7 +334,7 @@ export default function SummaryStep({
 
     ctx.fillStyle = '#1d1b18';
     ctx.font = 'bold 28px sans-serif';
-    ctx.fillText('Zomgon - ผลการซ้อมพรีเซนต์', 100, 94);
+    ctx.fillText('ZomGon - ผลการซ้อมพรีเซนต์', 100, 94);
 
     ctx.fillStyle = '#6b655e';
     ctx.font = '24px sans-serif';

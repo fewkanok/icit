@@ -1020,7 +1020,7 @@ export default function App() {
 
       <footer className="border-t border-line/60 bg-paper/60 px-4 py-4 text-center text-xs text-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-1">
-          <span>Zomgon</span>
+          <span>ZomGon</span>
           <span aria-hidden="true">·</span>
           <a href="/privacy" className="underline-offset-2 transition hover:text-ink hover:underline">
             นโยบายความเป็นส่วนตัว

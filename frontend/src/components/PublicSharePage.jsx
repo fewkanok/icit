@@ -54,7 +54,7 @@ export default function PublicSharePage({ shareId }) {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
           <a href={homeUrl} className="inline-flex items-center gap-2 text-base font-semibold tracking-tight text-stone-900">
             <span className="size-2.5 shrink-0 rounded-full bg-accent" />
-            <span>Zomgon</span>
+            <span>ZomGon</span>
           </a>
           <a
             href={homeUrl}
