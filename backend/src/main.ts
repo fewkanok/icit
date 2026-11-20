@@ -29,6 +29,9 @@ function getCorsOrigin(): boolean | string[] {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const httpAdapter = app.getHttpAdapter().getInstance();
+  if (typeof httpAdapter?.set === 'function') {
+    httpAdapter.set('trust proxy', 1);
+  }
   if (typeof httpAdapter?.disable === 'function') {
     httpAdapter.disable('x-powered-by');
   }
@@ -36,6 +39,9 @@ async function bootstrap() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
   app.enableCors({ origin: getCorsOrigin(), credentials: true });

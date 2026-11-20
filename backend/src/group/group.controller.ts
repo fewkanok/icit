@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   NotFoundException,
@@ -11,10 +12,28 @@ import {
   Post,
   Res,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { GroupGateway } from './group.gateway.js';
+
+const ALLOWED_MEDIA_MIME_BASES = new Set([
+  'video/webm',
+  'video/mp4',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/mpeg',
+]);
+
+function sanitizeMediaMimeType(raw?: string): string {
+  const cleaned = String(raw || 'video/webm').trim().slice(0, 80);
+  const base = cleaned.split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_MEDIA_MIME_BASES.has(base)) {
+    return 'video/webm';
+  }
+  return cleaned;
+}
 
 interface UploadGroupClipBody {
   slideIndex?: number;
@@ -42,6 +61,13 @@ export class GroupController {
     if (!roomCode || !Number.isInteger(slideIndex) || slideIndex < 0) {
       throw new BadRequestException('ข้อมูลสไลด์ไม่ถูกต้อง');
     }
+    if (!this.gateway.hasRoom(roomCode)) {
+      throw new NotFoundException('ไม่พบห้องซ้อมกลุ่มนี้ หรือห้องปิดไปแล้ว');
+    }
+    const memberId = String(body.memberId || '').trim().slice(0, 80);
+    if (!this.gateway.isMemberInRoom(roomCode, memberId)) {
+      throw new ForbiddenException('เฉพาะสมาชิกที่อยู่ในห้องซ้อมเท่านั้นที่อัปโหลดคลิปได้');
+    }
     if (!body?.mediaBase64 || typeof body.mediaBase64 !== 'string') {
       throw new BadRequestException('ไม่พบข้อมูลไฟล์คลิป');
     }
@@ -65,9 +91,8 @@ export class GroupController {
       .deleteMany({ where: { createdAt: { lt: cutoff } } })
       .catch(() => {});
 
-    const memberId = String(body.memberId || '').slice(0, 80);
     const memberName = String(body.memberName || 'สมาชิก').slice(0, 40);
-    const mimeType = String(body.mimeType || 'video/webm').slice(0, 80);
+    const mimeType = sanitizeMediaMimeType(body.mimeType);
 
     await this.prisma.groupClip.upsert({
       where: {
@@ -96,10 +121,13 @@ export class GroupController {
     return { ok: true, roomCode, slideIndex };
   }
 
-  @SkipThrottle()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':code/clips')
   async listClips(@Param('code') rawCode: string) {
     const roomCode = rawCode.trim().toUpperCase();
+    if (!this.gateway.hasRoom(roomCode)) {
+      throw new NotFoundException('ไม่พบห้องซ้อมกลุ่มนี้');
+    }
     const clips = await this.prisma.groupClip.findMany({
       where: { roomCode },
       orderBy: { slideIndex: 'asc' },
@@ -121,7 +149,7 @@ export class GroupController {
     }));
   }
 
-  @SkipThrottle()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':code/clips/:slideIndex/media')
   async getClipMedia(
     @Param('code') rawCode: string,
@@ -130,6 +158,9 @@ export class GroupController {
     @Res() res: Response,
   ) {
     const roomCode = rawCode.trim().toUpperCase();
+    if (!this.gateway.hasRoom(roomCode)) {
+      throw new NotFoundException('ไม่พบห้องซ้อมกลุ่มนี้');
+    }
     const clip = await this.prisma.groupClip.findUnique({
       where: { roomCode_slideIndex: { roomCode, slideIndex } },
       select: { mimeType: true, mediaData: true },
@@ -141,10 +172,11 @@ export class GroupController {
 
     const buf = Buffer.from(clip.mediaData);
     const total = buf.length;
-    const contentType = clip.mimeType || 'video/webm';
+    const contentType = sanitizeMediaMimeType(clip.mimeType);
 
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
 
     if (rangeHeader && rangeHeader.startsWith('bytes=')) {
@@ -168,6 +200,9 @@ export class GroupController {
   @Delete(':code/clips')
   async deleteRoomClips(@Param('code') rawCode: string) {
     const roomCode = rawCode.trim().toUpperCase();
+    if (!this.gateway.hasRoom(roomCode)) {
+      throw new NotFoundException('ไม่พบห้องซ้อมกลุ่มนี้');
+    }
     const result = await this.prisma.groupClip.deleteMany({
       where: { roomCode },
     });

@@ -1,16 +1,10 @@
 import { useEffect, useState } from 'react';
-import { fetchWallet, mockTopupTokens } from '../lib/api';
+import { fetchWallet } from '../lib/api';
 import Pagination from './Pagination';
 
-const PACKAGES = [
-  { id: 'starter', name: 'Starter Pack', tokens: 50, price: '49 บาท (จำลอง)' },
-  { id: 'pro', name: 'Pro Pack', tokens: 150, price: '99 บาท (จำลอง)' },
-];
-
-export default function WalletModal({ open, onClose, onBalanceChange }) {
+export default function WalletModal({ open, onClose }) {
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [buyingId, setBuyingId] = useState(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState(null);
   const [txPage, setTxPage] = useState(1);
@@ -47,22 +41,6 @@ export default function WalletModal({ open, onClose, onBalanceChange }) {
     await navigator.clipboard.writeText(referralUrl).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleBuy = async (packageId) => {
-    if (buyingId) return;
-    setBuyingId(packageId);
-    setError(null);
-    try {
-      const res = await mockTopupTokens(packageId);
-      onBalanceChange?.(res.tokenBalance);
-      const refreshed = await fetchWallet();
-      setWallet(refreshed);
-    } catch (err) {
-      setError(err.message || 'เติม Token ไม่สำเร็จ');
-    } finally {
-      setBuyingId(null);
-    }
   };
 
   return (
@@ -121,30 +99,6 @@ export default function WalletModal({ open, onClose, onBalanceChange }) {
                 >
                   {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
                 </button>
-              </div>
-            </div>
-
-            {/* ร้านค้าเติม Token จำลอง */}
-            <div className="space-y-2.5">
-              <h3 className="text-xs font-semibold text-ink">เติม Token (โหมดทดลองระบบ)</h3>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                {PACKAGES.map((pkg) => (
-                  <button
-                    key={pkg.id}
-                    type="button"
-                    disabled={Boolean(buyingId)}
-                    onClick={() => handleBuy(pkg.id)}
-                    className="flex flex-col items-start rounded-xl border border-line bg-paper/60 p-3.5 text-left transition hover:border-ink disabled:opacity-50 cursor-pointer"
-                  >
-                    <span className="text-xs font-medium text-ink">{pkg.name}</span>
-                    <span className="mt-1 font-mono text-lg font-semibold text-accent">
-                      +{pkg.tokens} Tokens
-                    </span>
-                    <span className="mt-0.5 text-[11px] text-muted">
-                      {buyingId === pkg.id ? 'กำลังเติม...' : pkg.price}
-                    </span>
-                  </button>
-                ))}
               </div>
             </div>
 

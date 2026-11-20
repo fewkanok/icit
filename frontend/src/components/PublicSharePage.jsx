@@ -52,8 +52,9 @@ export default function PublicSharePage({ shareId }) {
     <div className="min-h-screen bg-paper text-ink">
       <header className="border-b border-line bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
-          <a href={homeUrl} className="text-base font-semibold tracking-tight text-stone-900">
-            ซ้อมพรีเซนต์
+          <a href={homeUrl} className="inline-flex items-center gap-2 text-base font-semibold tracking-tight text-stone-900">
+            <span className="size-2.5 shrink-0 rounded-full bg-accent" />
+            <span>Zomgon</span>
           </a>
           <a
             href={homeUrl}

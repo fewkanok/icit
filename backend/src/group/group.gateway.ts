@@ -211,6 +211,17 @@ export class GroupGateway implements OnGatewayDisconnect, OnModuleInit, OnModule
     void this.prisma.groupClip.deleteMany({ where: { roomCode: code } }).catch(() => {});
   }
 
+  hasRoom(code: string): boolean {
+    return this.rooms.has(code);
+  }
+
+  isMemberInRoom(code: string, memberId: string): boolean {
+    if (!memberId) return false;
+    const room = this.rooms.get(code);
+    if (!room) return false;
+    return room.members.some((m) => m.id === memberId);
+  }
+
   notifyClipUploaded(code: string, slideIndex: number) {
     const room = this.rooms.get(code);
     if (!room) return;

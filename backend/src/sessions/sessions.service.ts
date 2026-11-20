@@ -461,7 +461,7 @@ export class SessionsService {
     const session = await this.prisma.rehearsalSession.findFirst({
       where: {
         id: sessionId,
-        OR: [{ userId }, { participants: { some: { userId } } }],
+        userId,
       },
       select: { id: true, shareId: true, isPublic: true },
     });

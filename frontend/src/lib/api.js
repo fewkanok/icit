@@ -80,10 +80,6 @@ export function fetchWallet() {
   return getJson('/api/tokens/wallet');
 }
 
-export function mockTopupTokens(packageId) {
-  return postJson('/api/tokens/topup-mock', { packageId });
-}
-
 export function saveRehearsalSession(payload) {
   return postJson('/api/sessions', payload);
 }

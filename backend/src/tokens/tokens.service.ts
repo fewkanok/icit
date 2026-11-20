@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export const TOKEN_COSTS = {
@@ -10,11 +10,6 @@ export const TOKEN_COSTS = {
   SUMMARY_ANALYZE: 2,
   ROUND_COMPARE: 1,
 } as const;
-
-const TOPUP_PACKAGES: Record<string, { amount: number; label: string }> = {
-  starter: { amount: 50, label: 'แพ็กเกจทดลอง Starter (+50 Tokens)' },
-  pro: { amount: 150, label: 'แพ็กเกจซ้อมจุใจ Pro (+150 Tokens)' },
-};
 
 @Injectable()
 export class TokensService {
@@ -43,7 +38,7 @@ export class TokensService {
       if (updated.count === 0) {
         throw new ForbiddenException({
           error: 'INSUFFICIENT_TOKENS',
-          message: 'Token ของคุณไม่เพียงพอ กรุณากดที่ยอด Token เพื่อเติมจำลองหรือชวนเพื่อนรับเพิ่ม',
+          message: 'Token ของคุณไม่เพียงพอ กรุณากดที่ยอด Token เพื่อชวนเพื่อนรับเพิ่ม',
         });
       }
 
@@ -121,34 +116,5 @@ export class TokensService {
       maxReferrals: 10,
       transactions,
     };
-  }
-
-  async mockTopup(userId: string, packageId: string) {
-    const pkg = TOPUP_PACKAGES[packageId];
-    if (!pkg) {
-      throw new BadRequestException('ไม่พบแพ็กเกจเติม Token ที่เลือก');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.update({
-        where: { id: userId },
-        data: { tokenBalance: { increment: pkg.amount } },
-        select: { tokenBalance: true },
-      });
-
-      await tx.tokenTransaction.create({
-        data: {
-          userId,
-          amount: pkg.amount,
-          type: 'TOPUP_MOCK',
-          description: pkg.label,
-        },
-      });
-
-      return {
-        tokenBalance: user.tokenBalance,
-        added: pkg.amount,
-      };
-    });
   }
 }

@@ -10,6 +10,14 @@ class HttpThrottlerGuard extends ThrottlerGuard {
     }
     return super.canActivate(context);
   }
+
+  protected override async getTracker(req: Record<string, unknown>): Promise<string> {
+    const user = req.user as { id?: string } | undefined;
+    if (user?.id) {
+      return `user:${user.id}`;
+    }
+    return super.getTracker(req);
+  }
 }
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
