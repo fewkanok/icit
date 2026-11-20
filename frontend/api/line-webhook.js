@@ -12,17 +12,45 @@ const DEFAULT_RENDER_BACKEND = 'https://icit.onrender.com';
 const MAX_INLINE_PDF_BYTES = 150 * 1024 * 1024; // รองรับไฟล์ PDF ขนาดใหญ่ถึง 150 MB
 const userSlideContextMap = new Map();
 
-function buildBriefSlideSummary(fileName, cleanTitle, extractedPages, totalPdfPages) {
-  if (Array.isArray(extractedPages) && extractedPages.length > 0) {
-    const count = totalPdfPages || extractedPages.length;
-    const lines = extractedPages.map((p) => {
-      const shortText = String(p.text || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-      return `📌 หน้า ${p.page}: ${shortText}${p.text?.length > 140 ? '...' : ''}`;
-    });
+function buildBriefSlideSummary(
+  fileName,
+  cleanTitle,
+  extractedPages,
+  totalPdfPages,
+  aiOverallSummary = '',
+) {
+  const count = totalPdfPages || extractedPages?.length || 0;
+  if (aiOverallSummary && aiOverallSummary.trim()) {
     return [
-      `📄 สรุปเนื้อหาคร่าวๆ จากไฟล์ "${fileName}" (${count} หน้า)`,
+      `📄 สรุปเนื้อหาคร่าวๆ จากสไลด์ทั้งหมด "${fileName}"${count ? ` (${count} หน้า)` : ''}`,
       '',
-      ...lines,
+      aiOverallSummary.trim(),
+      '',
+      'เลือกดำเนินการต่อจากปุ่มด้านล่างได้เลยครับ 👇',
+    ]
+      .join('\n')
+      .slice(0, 4800);
+  }
+  if (Array.isArray(extractedPages) && extractedPages.length > 0) {
+    const pickIndices = Array.from(
+      new Set([
+        0,
+        Math.floor(extractedPages.length / 2),
+        extractedPages.length - 1,
+      ]),
+    ).filter((idx) => idx >= 0 && idx < extractedPages.length);
+    const highlights = pickIndices
+      .map((idx) => {
+        const raw = String(extractedPages[idx]?.text || '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        return raw ? `• ${raw.slice(0, 120)}${raw.length > 120 ? '...' : ''}` : '';
+      })
+      .filter(Boolean);
+    return [
+      `📄 สรุปเนื้อหาคร่าวๆ จากสไลด์ทั้งหมด "${fileName}" (${count} หน้า)`,
+      '',
+      ...highlights,
       '',
       'เลือกดำเนินการต่อจากปุ่มด้านล่างได้เลยครับ 👇',
     ]
@@ -31,7 +59,7 @@ function buildBriefSlideSummary(fileName, cleanTitle, extractedPages, totalPdfPa
   }
   return [
     `📄 รับไฟล์ "${fileName}" (${cleanTitle}) เรียบร้อยแล้วครับ`,
-    'ระบบได้เตรียมห้องซ้อมพรีเซนต์สำหรับไฟล์ชุดนี้ไว้ให้แล้ว สามารถกดปุ่มด้านล่างเพื่อเข้าซ้อมบนเว็บ หรือสุ่มคำถามจากสไลด์ได้เลยครับ 👇',
+    'ระบบได้เตรียมห้องซ้อมพรีเซนต์สำหรับไฟล์ชุดนี้ไว้ให้แล้ว สามารถกดปุ่มด้านล่างเพื่อเข้าซ้อม หรือสุ่มคำถามจากสไลด์ได้เลยครับ 👇',
   ].join('\n\n');
 }
 
@@ -55,7 +83,7 @@ function readRawBody(req) {
 function buildFlowGuideFlex(appBaseUrl) {
   return {
     type: 'flex',
-    altText: 'ขั้นตอนการใช้งาน ICIT Rehearsal Coach (4 ขั้นตอน)',
+    altText: 'ขั้นตอนการใช้งาน PoodDee Rehearsal Coach (4 ขั้นตอน)',
     contents: {
       type: 'bubble',
       size: 'mega',
@@ -67,7 +95,7 @@ function buildFlowGuideFlex(appBaseUrl) {
         contents: [
           {
             type: 'text',
-            text: 'ICIT REHEARSAL COACH × LANGMIND',
+            text: 'PoodDee REHEARSAL COACH × LANGMIND',
             color: '#D95D39',
             size: 'xs',
             weight: 'bold',
@@ -255,7 +283,7 @@ async function extractPdfPagesText(arrayBuf) {
     });
     const doc = await loadingTask.promise;
     const pages = [];
-    const maxPages = Math.min(doc.numPages, 15);
+    const maxPages = Math.min(doc.numPages, 30);
     for (let i = 1; i <= maxPages; i++) {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
@@ -324,7 +352,7 @@ function buildPdfActionFlex({ title, pageCount, rehearsalUrl }) {
         contents: [
           {
             type: 'text',
-            text: 'ICIT REHEARSAL COACH',
+            text: 'PoodDee REHEARSAL COACH',
             weight: 'bold',
             size: 'xs',
             color: '#D95D39',
@@ -462,15 +490,20 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ดึงเนื้อหาสไลด์จริงแนบส่งเข้าสมองของ LangMind โดยตรง!
-        if (/^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(text)) {
-          modified = true;
+        // คำสั่งสุ่มคำถามกรรมการจากสไลด์ -> ดึงเนื้อหาสไลด์จริงสร้างคำถาม 1 ข้อและบอกวิธีเปิดไมค์ตอบทันที (ไม่สร้างไฟล์ใดๆ)
+        if (
+          ev.replyToken &&
+          channelAccessToken &&
+          /^(สุ่มคำถาม|สุ่มคำถามจากสไลด์|สุ่มคำถามสายเทคนิค|สุ่มคำถามสายใช้งานจริง|ซ้อมตอบคำถาม|ขอคำถาม)$/i.test(
+            text,
+          )
+        ) {
           const userId = ev?.source?.userId || 'default';
           let savedCtx = userSlideContextMap.get(userId);
           if (!savedCtx) {
             try {
               const controller = new AbortController();
-              const timer = setTimeout(() => controller.abort(), 2500);
+              const timer = setTimeout(() => controller.abort(), 3000);
               const ctxRes = await fetch(
                 `${renderBackendBase}/api/langmind/context/${encodeURIComponent(userId)}`,
                 { signal: controller.signal },
@@ -494,18 +527,104 @@ export default async function handler(req, res) {
               ? 'หมวด [R] การวัดผลและการนำไปใช้งานจริง'
               : 'เนื้อหาสำคัญในสไลด์หรือโครงสร้างสไลด์';
 
-          const contextBlock = savedCtx?.summaryText
-            ? `นี่คือข้อมูลสไลด์ล่าสุดของผม (${savedCtx.deckName || 'สไลด์นำเสนอ'}):\n${savedCtx.summaryText}\n\n`
-            : '';
+          const deckName = savedCtx?.deckName || 'สไลด์นำเสนอ';
+          let questionText = `จากสไลด์เรื่อง "${deckName}" อะไรคือจุดเด่นสำคัญและหลักฐาน/วิธีการหลักที่ทำให้งานชิ้นนี้สำเร็จตามเป้าหมายครับ?`;
 
-          forwardEvents.push({
-            ...ev,
-            message: {
-              id: ev.message.id,
-              type: 'text',
-              text: `${contextBlock}ช่วยตั้งคำถามกรรมการสอบ 1 ข้อทันทีจากเนื้อหาสไลด์ข้างต้น (เน้น${focusMode}) โดยห้ามปฏิเสธหรือขอข้อมูลซ้ำ ห้ามเรียกใช้เครื่องมือ create_downloadable_file หรือสร้างไฟล์ใดๆ และห้ามพูดถึงไฟล์ .docx/.pptx ให้ตอบกลับมาเป็นข้อความคำถามสั้นๆ คมๆ เพียง 1 ข้อ (ยังไม่ต้องเฉลยคำตอบ) พร้อมบอกให้ผมกดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบ (หรือพิมพ์ตอบ) ได้เลยครับ`,
-            },
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 6000);
+            const qRes = await fetch(`${renderBackendBase}/api/langmind/generate-question`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId,
+                focusMode,
+                deckName,
+                summaryText: savedCtx?.summaryText || '',
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (qRes.ok) {
+              const qJson = await qRes.json();
+              if (qJson?.question) {
+                questionText = String(qJson.question).trim();
+              }
+            }
+          } catch {
+            // use fallback question
+          }
+
+          userSlideContextMap.set(userId, {
+            ...(savedCtx || { userId, deckName }),
+            lastQuestion: questionText,
           });
+
+          await replyToLine(channelAccessToken, ev.replyToken, [
+            {
+              type: 'flex',
+              altText: `คำถามซ้อมสอบ: ${questionText}`,
+              contents: {
+                type: 'bubble',
+                body: {
+                  type: 'box',
+                  layout: 'vertical',
+                  spacing: 'md',
+                  contents: [
+                    {
+                      type: 'text',
+                      text: `❓ คำถามกรรมการสอบ · ${deckName}`,
+                      color: '#D95D39',
+                      size: 'xs',
+                      weight: 'bold',
+                      wrap: true,
+                    },
+                    {
+                      type: 'text',
+                      text: `“${questionText}”`,
+                      weight: 'bold',
+                      size: 'md',
+                      color: '#1F1E1D',
+                      wrap: true,
+                    },
+                    {
+                      type: 'box',
+                      layout: 'vertical',
+                      backgroundColor: '#FFF4F0',
+                      cornerRadius: '8px',
+                      paddingAll: '12px',
+                      contents: [
+                        {
+                          type: 'text',
+                          text: '🎙️ กดปุ่มไมโครโฟนในแชท LINE เพื่ออัดเสียงพูดตอบคำถามนี้ได้เลยครับ (หรือพิมพ์คำตอบส่งมาได้เลย)',
+                          size: 'xs',
+                          color: '#D95D39',
+                          weight: 'bold',
+                          wrap: true,
+                        },
+                      ],
+                    },
+                  ],
+                },
+                footer: {
+                  type: 'box',
+                  layout: 'vertical',
+                  contents: [
+                    {
+                      type: 'button',
+                      style: 'secondary',
+                      height: 'sm',
+                      action: {
+                        type: 'message',
+                        label: '🔄 สุ่มคำถามข้อใหม่',
+                        text: 'สุ่มคำถามจากสไลด์',
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ]);
           continue;
         }
 
@@ -516,13 +635,16 @@ export default async function handler(req, res) {
       // 3. เมื่อผู้ใช้กดไมค์อัดเสียงพูดตอบใน LINE (type === 'audio') -> ถอดเสียงแล้วส่งให้ LangMind ประมวลผลตรวจคำตอบ!
       if (ev?.type === 'message' && ev?.message?.type === 'audio' && channelAccessToken) {
         modified = true;
+        const userId = ev?.source?.userId || 'default';
         const messageId = ev.message.id;
         const durationSec = Math.max(1, Math.round(Number(ev.message.duration || 15000) / 1000));
+        const savedCtx = userSlideContextMap.get(userId) || {};
         let transcript = '';
+        let transcribeError = '';
 
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 6000);
+          const timer = setTimeout(() => controller.abort(), 18000);
           const audioRes = await fetch(
             `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`,
             {
@@ -531,6 +653,8 @@ export default async function handler(req, res) {
             },
           );
           if (audioRes.ok) {
+            const rawMime = (audioRes.headers.get('content-type') || 'audio/mp4').split(';')[0].trim();
+            const mimeType = rawMime.includes('m4a') ? 'audio/mp4' : rawMime;
             const arrayBuf = await audioRes.arrayBuffer();
             const audioBase64 = Buffer.from(arrayBuf).toString('base64');
             const evalRes = await fetch(`${renderBackendBase}/api/langmind/evaluate-voice`, {
@@ -538,8 +662,10 @@ export default async function handler(req, res) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 audioBase64,
-                mimeType: 'audio/mp4',
+                mimeType,
                 durationSec,
+                question: savedCtx.lastQuestion,
+                deckTitle: savedCtx.deckName,
               }),
               signal: controller.signal,
             });
@@ -547,22 +673,41 @@ export default async function handler(req, res) {
               const json = await evalRes.json();
               if (json?.transcript) {
                 transcript = String(json.transcript).trim();
+              } else if (json?.message) {
+                transcribeError = String(json.message);
               }
+            } else {
+              transcribeError = `Backend HTTP ${evalRes.status}`;
             }
+          } else {
+            transcribeError = `LINE Audio HTTP ${audioRes.status}`;
           }
           clearTimeout(timer);
         } catch (err) {
-          console.warn('[LINE Voice -> LangMind] Audio transcribe fallback:', err?.message);
+          transcribeError = err?.name === 'AbortError' ? 'หมดเวลาถอดเสียง (Timeout)' : (err?.message || 'เชื่อมต่อระบบถอดเสียงไม่สำเร็จ');
+          console.warn('[LINE Voice -> LangMind] Audio transcribe fallback:', transcribeError);
         }
 
         const wordCount = transcript
-          ? transcript.split(/\s+/).length * 3
+          ? transcript.replace(/\s+/g, '').length / 3.5
           : Math.round(durationSec * 2.2);
-        const wpm = Math.round((wordCount / durationSec) * 60);
+        const wpm = Math.max(1, Math.round((wordCount / durationSec) * 60));
+
+        const questionCtx = savedCtx.lastQuestion
+          ? `คำถามที่ถามคือ: "${savedCtx.lastQuestion}"\n`
+          : '';
 
         const voicePromptToLangMind = transcript
-          ? `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE (ความยาวเสียง ${durationSec} วินาที, ความเร็วประมาณ ${wpm} คำ/นาที) ข้อความที่ถอดจากเสียงพูดของผมคือ:\n"${transcript}"\n\nกรุณาช่วยตรวจประเมินคำตอบนี้เทียบกับคำถามที่คุณเพิ่งถามและเนื้อหาสไลด์ของเรา ให้คะแนนเต็ม 10 วิเคราะห์จุดเด่น จุดที่ควรปรับปรุง (ทั้งด้านเนื้อหาและจังหวะการพูด ${wpm} คำ/นาที) พร้อมแนะนำตัวอย่างคำตอบที่คมชัดตามหลัก A-R-E (Answer-Reason-Evidence) ครับ`
-          : `ผมอัดเสียงพูดตอบคำถามของคุณใน LINE ความยาว ${durationSec} วินาที (ความเร็วประมาณ ${wpm} คำ/นาที) กรุณาช่วยประเมินจังหวะเวลาการตอบคำถาม (${durationSec} วินาที) และให้แนวทางคำตอบที่ดีที่สุดตามหลัก A-R-E สำหรับคำถามที่คุณเพิ่งถามผมด้วยครับ`;
+          ? [
+              `ผมอัดเสียงพูดตอบคำถามใน LINE (ความยาว ${durationSec} วินาที, ความเร็ว ~${wpm} คำ/นาที)`,
+              questionCtx ? questionCtx.trim() : null,
+              `ข้อความที่ถอดได้จากเสียงพูด: "${transcript}"`,
+              `[คำสั่งสำคัญ: ตอบให้สั้นและกระชับที่สุด เอาแค่ 3 หัวข้อตามรูปแบบนี้เท่านั้น ห้ามเขียนยืดยาว ห้ามเกริ่นนำ ห้ามสร้างไฟล์ใดๆ]:`,
+              `🗣️ คำตอบของคุณ:\n"${transcript}"\n\n🔧 จุดที่ควรปรับปรุง:\n(บอกสั้นๆ 1–2 ข้อว่าคำตอบยังขาดประเด็นไหน หรือพูดเร็ว/ช้าไปอย่างไร)\n\n💡 คำตอบที่ควรพูด:\n"(ประโยคตัวอย่างที่กระชับ คมชัด พร้อมนำไปพูดตามได้ทันที 2–3 ประโยค)"`,
+            ]
+              .filter(Boolean)
+              .join('\n\n')
+          : `ระบบไม่สามารถถอดข้อความจากไฟล์เสียงได้ (${transcribeError || 'ไม่ได้ยินเสียงพูดชัดเจน'}) กรุณาแจ้งสั้นๆ ว่า "⚠️ ระบบไม่สามารถถอดเสียงพูดได้ (${transcribeError || 'ไม่ได้ยินเสียงพูดชัดเจน'}) กรุณากดไมค์อัดเสียงใหม่อีกครั้งครับ" (ห้ามเดาเนื้อหาและห้ามสร้างไฟล์ใดๆ)`;
 
         forwardEvents.push({
           ...ev,
@@ -642,17 +787,38 @@ export default async function handler(req, res) {
         };
         userSlideContextMap.set(userId, ctxPayload);
 
-        // บันทึกบริบทสไลด์ลง Backend เพื่อให้กด "สุ่มคำถามจากสไลด์" ผ่าน LangMind ได้แม่นยำเสมอ
+        // บันทึกบริบทสไลด์ลง Backend และขอสรุปภาพรวมสไลด์ทั้งหมดจาก AI
+        let aiOverallSummary = '';
         try {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 2500);
-          await fetch(`${renderBackendBase}/api/langmind/context`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ctxPayload),
-            signal: controller.signal,
-          });
+          const timer = setTimeout(() => controller.abort(), 5500);
+          const [, sumRes] = await Promise.all([
+            fetch(`${renderBackendBase}/api/langmind/context`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ctxPayload),
+              signal: controller.signal,
+            }).catch(() => null),
+            extractedPages.length > 0
+              ? fetch(`${renderBackendBase}/api/langmind/summarize-slides`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    deckName: cleanTitle,
+                    pageCount: totalPdfPages || extractedPages.length,
+                    summaryText: extractedTextBlock,
+                  }),
+                  signal: controller.signal,
+                }).catch(() => null)
+              : Promise.resolve(null),
+          ]);
           clearTimeout(timer);
+          if (sumRes && sumRes.ok) {
+            const sumJson = await sumRes.json().catch(() => null);
+            if (sumJson?.summary) {
+              aiOverallSummary = String(sumJson.summary).trim();
+            }
+          }
         } catch {
           // ignore if backend slow
         }
@@ -662,6 +828,7 @@ export default async function handler(req, res) {
           cleanTitle,
           extractedPages,
           totalPdfPages,
+          aiOverallSummary,
         );
 
         const messagesToSend = [{ type: 'text', text: briefSummaryText }];

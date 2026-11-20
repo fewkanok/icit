@@ -516,6 +516,108 @@ export class LangmindController {
     return { ok: false };
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Post('generate-question')
+  async generateQuestionFromSlide(
+    @Body()
+    body: {
+      userId?: string;
+      focusMode?: string;
+      deckName?: string;
+      summaryText?: string;
+    },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const deckName = String(body?.deckName || 'สไลด์นำเสนอ').trim();
+    const summaryText = String(body?.summaryText || '').trim();
+    const focusMode = String(body?.focusMode || 'เนื้อหาสำคัญในสไลด์').trim();
+
+    if (!apiKey || !summaryText) {
+      return {
+        ok: true,
+        question: `จากสไลด์เรื่อง "${deckName}" อะไรคือประเด็นสำคัญหรือจุดพลิกผันหลักของงานชิ้นนี้ และสามารถนำไปประยุกต์ใช้จริงได้อย่างไรครับ?`,
+      };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `คุณคือกรรมการสอบโครงงานระดับมหาวิทยาลัย
+หัวข้อสไลด์: "${deckName}"
+เนื้อหาสไลด์ของผู้เรียน:
+${summaryText.slice(0, 4000)}
+
+จงตั้งคำถามกรรมการสอบที่เฉียบคม เจาะจงกับเนื้อหาสไลด์ข้างต้นมาเพียง 1 ข้อเท่านั้น (เน้น${focusMode})
+กติกา:
+- ตอบกลับมาเป็นข้อความคำถาม 1 ข้อสั้นๆ กระชับ ภาษาไทยเท่านั้น
+- ห้ามเฉลยคำตอบ และห้ามเขียนคำนำหรือข้อความอื่นเกินจำเป็น`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+      const question = (response.text || '').trim().replace(/^["']|["']$/g, '');
+      if (question) {
+        return { ok: true, question };
+      }
+    } catch {
+      // fallback below
+    }
+
+    return {
+      ok: true,
+      question: `จากเนื้อหาในสไลด์ "${deckName}" ช่วยอธิบายเหตุผลสำคัญและหลักฐาน/วิธีการหลักที่ทำให้ผลลัพธ์ของงานนี้สำเร็จครับ?`,
+    };
+  }
+
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Post('summarize-slides')
+  async summarizeSlides(
+    @Body()
+    body: {
+      deckName?: string;
+      pageCount?: number;
+      summaryText?: string;
+    },
+  ) {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    const deckName = String(body?.deckName || 'สไลด์นำเสนอ').trim();
+    const pageCount = Number(body?.pageCount || 0);
+    const summaryText = String(body?.summaryText || '').trim();
+
+    if (!apiKey || !summaryText) {
+      return { ok: false };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `คุณคือผู้ช่วยสรุปสไลด์นำเสนอ (PoodDee Rehearsal Coach)
+ชื่อไฟล์/หัวข้อ: "${deckName}" (${pageCount > 0 ? `${pageCount} หน้า` : 'หลายหน้า'})
+เนื้อหาที่ดึงได้จากสไลด์ทั้งหมด:
+${summaryText.slice(0, 6000)}
+
+จงสรุปภาพรวมเนื้อหาคร่าวๆ ของสไลด์ทั้งหมดนี้เป็นภาษาไทยให้เข้าใจง่าย กระชับ และจบในข้อความเดียว (ห้ามไล่สรุปทีละหน้าแบบ หน้า 1, หน้า 2)
+กติกา:
+- สรุปภาพรวมทั้งชุดสไลด์ใน 3 ประเด็นสั้นๆ (ความยาวรวมไม่เกิน 450 ตัวอักษร) ได้แก่:
+  • เป้าหมาย/ปัญหาหลักที่นำเสนอ
+  • วิธีการ/แนวทางหรือเทคโนโลยีที่ใช้
+  • ผลลัพธ์หรือจุดเด่นสำคัญของงาน
+- ใช้ภาษาสุภาพ อ่านง่ายใน LINE ไม่ต้องมีคำนำหรือคำลงท้ายยาว`;
+
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+      const summary = (response.text || '').trim();
+      if (summary) {
+        return { ok: true, summary };
+      }
+    } catch {
+      // fallback handled by caller
+    }
+
+    return { ok: false };
+  }
+
   private pruneExpiredMemory() {
     const now = Date.now();
     for (const [key, entry] of this.memoryStore.entries()) {
