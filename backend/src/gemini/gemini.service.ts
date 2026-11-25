@@ -100,7 +100,7 @@ export class GeminiService {
     }
     return {
       ai: new GoogleGenAI(apiVersion ? { apiKey, apiVersion } : { apiKey }),
-      model: process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite',
     };
   }
 
@@ -111,7 +111,13 @@ export class GeminiService {
   private async askJson<T>(contents: unknown): Promise<T> {
     const { ai, model } = this.getClient('v1beta');
     const candidates = Array.from(
-      new Set([model, 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.1-flash-lite']),
+      new Set([
+        model,
+        'gemini-3.5-flash-lite',
+        'gemini-3.5-flash',
+        'gemini-2.5-flash',
+        'gemini-3.1-flash-lite',
+      ]),
     );
 
     let lastError: unknown;
