@@ -2,11 +2,153 @@ import { clearAllLocalVideos, deleteLocalSessionVideo } from './videoStore';
 
 export const DEMO_AUTH_TOKEN = 'demo-mode-token';
 export const DEMO_INITIAL_TOKENS = 50;
+export const DEMO_PERMANENT_SESSION_ID = 'demo_permanent_sample';
 
 const KEY_ACTIVE = 'zomgon_demo_active';
 const KEY_TOKENS = 'zomgon_demo_tokens';
 const KEY_TXS = 'zomgon_demo_transactions';
 const KEY_SESSIONS = 'zomgon_demo_sessions';
+
+function buildPermanentDemoSession() {
+  return {
+    id: DEMO_PERMANENT_SESSION_ID,
+    userId: 'demo-presenter',
+    deckName: 'นำเสนอโครงงาน ZomGon (ตัวอย่าง)',
+    audience: 'teacher',
+    rehearsalMode: 'per_slide',
+    isGroup: false,
+    roomCode: null,
+    seriesId: 'demo_series_sample',
+    roundNumber: 1,
+    shareId: null,
+    isPublic: false,
+    slideCount: 4,
+    totalDurationSec: 245,
+    avgWpm: 138,
+    avgEyeContactPct: 84,
+    overallScore: 88,
+    videoPath: null,
+    videoUploadedAt: null,
+    createdAt: '2026-11-24T10:30:00.000Z',
+    updatedAt: '2026-11-24T10:30:00.000Z',
+    participants: [],
+    slidesJson: [
+      {
+        index: 0,
+        title: 'ที่มาและความสำคัญของปัญหา',
+        duration: 58,
+        wpm: 134,
+        fillersCount: 1,
+        deadAirCount: 0,
+        eyeContactPct: 88,
+        transcript:
+          'สวัสดีคณะกรรมการทุกท่านครับ วันนี้ขออนุญาตนำเสนอโครงงาน ZomGon ระบบ AI โค้ชช่วยซ้อมพรีเซนต์อัจฉริยะ ซึ่งเกิดจากปัญหาที่นักศึกษาส่วนใหญ่มักกังวลเวลาขึ้นพูดจริง ซ้อมคนเดียวไม่รู้ความเร็วการพูด ไม่รู้ว่าก้มอ่านโพยหรือเกิดเดดแอร์ช่วงไหน และไม่สามารถจำลองคำถามจากกรรมการได้ครับ',
+      },
+      {
+        index: 1,
+        title: 'แนวคิดและสถาปัตยกรรมระบบ ZomGon',
+        duration: 66,
+        wpm: 145,
+        fillersCount: 2,
+        deadAirCount: 0,
+        eyeContactPct: 81,
+        transcript:
+          'เราจึงออกแบบเว็บแอปพลิเคชันที่รวมการวิเคราะห์เสียงและภาพแบบเรียลไทม์บนเบราว์เซอร์ โดยใช้ Web Speech API ถอดเสียงวัดความเร็วคำต่อนาที ตรวจจับคำติดปากและช่วงเงียบ ใช้ MediaPipe ตรวจจับการสบตากล้อง และเชื่อมต่อ Gemini AI เพื่อสร้างคำถามแทรกและคำถาม Q&A เฉพาะสไลด์ที่ผู้พูดเลือกซ้อมครับ',
+      },
+      {
+        index: 2,
+        title: 'ฟีเจอร์เด่น: ซ้อมเดี่ยว ซ้อมกลุ่ม และประวัติย้อนหลัง',
+        duration: 64,
+        wpm: 140,
+        fillersCount: 1,
+        deadAirCount: 1,
+        eyeContactPct: 82,
+        transcript:
+          'ผู้ใช้งานสามารถเลือกซ้อมเฉพาะบางสไลด์ ซ้อมเดี่ยวพร้อมรีโมตมือถือ หรือซ้อมเป็นกลุ่มออนไลน์ร่วมกับเพื่อนได้ หลังซ้อมเสร็จระบบจะสร้างกราฟวิเคราะห์รายสไลด์ ตรวจคำตอบ Q&A และบันทึกประวัติย้อนหลังให้กลับมาทบทวนพัฒนาการในรอบถัดไปได้ทันทีครับ',
+      },
+      {
+        index: 3,
+        title: 'ผลการทดสอบและแนวทางพัฒนาต่อยอด',
+        duration: 57,
+        wpm: 132,
+        fillersCount: 0,
+        deadAirCount: 0,
+        eyeContactPct: 86,
+        transcript:
+          'จากผลการทดลองใช้งานจริง พบว่าผู้ซ้อมสามารถคุมจังหวะการพูดให้อยู่ในช่วงเหมาะสมได้เร็วขึ้น ลดคำติดปาก และมีความมั่นใจในการตอบคำถามกรรมการมากขึ้น ในอนาคตสามารถต่อยอดรองรับหลายภาษาและเกณฑ์ประเมินเฉพาะแต่ละคณะได้ครับ ขอบคุณครับ',
+      },
+    ],
+    qaJson: [
+      {
+        question:
+          'ระบบ ZomGon แตกต่างจากการซ้อมอัดวิดีโอดูเองด้วยมือถือหรือโปรแกรมทั่วไปอย่างไร?',
+        slideIndex: 1,
+        answerTranscript:
+          'จุดต่างหลักคือ ZomGon วิเคราะห์เชิงตัวเลขให้ทันทีระหว่างพูดครับ ทั้งความเร็วคำต่อนาที คำติดปาก เดดแอร์ และเปอร์เซ็นต์การสบตา รวมถึงมีกรรมการ AI ตั้งคำถามสดจากเนื้อหาสไลด์ที่ซ้อมจริง ทำให้ได้ฝึกตอบคำถามเฉพาะหน้าเหมือนห้องสอบจริงครับ',
+        duration: 28,
+        directness: 'ตอบตรงประเด็น',
+        feedback:
+          'อธิบายความแตกต่างได้ชัดเจน ครบทั้งมุมการวัดผลแบบเรียลไทม์และการจำลองกรรมการถาม-ตอบ',
+        betterAnswer:
+          'การอัดวิดีโอดูเองต้องมานั่งจับผิดเองทีหลัง แต่ ZomGon วัดจังหวะพูด คำติดปาก และการสบตาให้แบบเรียลไทม์ พร้อมจำลองกรรมการ AI ยิงคำถามสดจากสไลด์ที่ซ้อมครับ',
+        timelineNote: '',
+      },
+      {
+        question:
+          'การประมวลผลกล้องและไมโครโฟนบนเบราว์เซอร์มีความกังวลเรื่องความเป็นส่วนตัวของข้อมูลผู้ใช้อย่างไร?',
+        slideIndex: 2,
+        answerTranscript:
+          'การตรวจจับสายตาด้วย MediaPipe และคลื่นเสียงทั้งหมดประมวลผลบนเครื่องของผู้ใช้โดยตรงครับ ไม่ได้ส่งภาพจากกล้องขึ้นเซิร์ฟเวอร์ และในโหมด Demo ข้อมูลประวัติและคลิปจะเก็บเฉพาะในเบราว์เซอร์เครื่องนั้นและกดล้างทิ้งได้ทันทีครับ',
+        duration: 24,
+        directness: 'ตอบตรงประเด็น',
+        feedback:
+          'ตอบประเด็นความเป็นส่วนตัวได้น่าเชื่อถือ ระบุชัดเจนว่าภาพกล้องประมวลผลฝั่ง Client-side',
+        betterAnswer:
+          'การวิเคราะห์สายตาและเสียงทำบนเบราว์เซอร์ฝั่งผู้ใช้ 100% ภาพกล้องไม่ถูกส่งขึ้นเซิร์ฟเวอร์ และผู้ใช้ควบคุมการลบประวัติหรือคลิปได้เองตลอดเวลาครับ',
+        timelineNote: '',
+      },
+    ],
+    summaryJson: {
+      listenerSummary:
+        'การนำเสนอภาพรวมชัดเจน มีลำดับเล่าเรื่องตั้งแต่ปัญหา แนวทางแก้ไข ฟีเจอร์หลัก จนถึงผลลัพธ์ จังหวะการพูดสม่ำเสมอที่ 138 คำ/นาที และรักษาการสบตากล้องได้ดีมาก (84%) ทำให้ผู้ฟังติดตามเข้าใจง่าย',
+      topStrengths: [
+        'ความเร็วในการพูดเฉลี่ย 138 คำ/นาที อยู่ในเกณฑ์ฟังสบายและชัดเจนตลอด 4 สไลด์',
+        'การสบตากล้องเฉลี่ยสูงถึง 84% ช่วยสร้างความมั่นใจและความน่าเชื่อถือต่อกรรมการ',
+        'ตอบคำถาม Q&A ได้ตรงประเด็นทั้ง 2 ข้อ กระชับ และอธิบายจุดเด่นของระบบได้ชัด',
+      ],
+      topImprovements: [
+        'สไลด์หน้าที่ 2 พูดเร็วขึ้นเล็กน้อย (145 คำ/นาที) ควรเว้นจังหวะหายใจช่วงอธิบายสถาปัตยกรรมระบบ',
+        'สไลด์หน้าที่ 3 มีช่วงเงียบค้าง 1 ครั้ง ลองซ้อมคำเชื่อมระหว่างฟีเจอร์ให้ลื่นไหลขึ้น',
+      ],
+      slides: [
+        {
+          slideIndex: 0,
+          coverage: 'ครบประเด็น',
+          listenerTakeaway: 'เห็นภาพชัดเจนว่านักศึกษาเจอปัญหาอะไรในการซ้อมพรีเซนต์คนเดียว',
+          suggestion: 'เปิดเรื่องได้ดีมาก ลองเน้นน้ำเสียงตรงประโยคปัญหาหลักอีกนิดเพื่อดึงความสนใจ',
+        },
+        {
+          slideIndex: 1,
+          coverage: 'ครบประเด็น',
+          listenerTakeaway: 'เข้าใจเทคโนโลยีหลักที่ใช้ทั้งฝั่งเสียง ภาพ และการเชื่อม Gemini AI',
+          suggestion: 'ลดความเร็วช่วงไล่ชื่อเทคโนโลยีลงเล็กน้อยเพื่อให้กรรมการที่ไม่ใช่สายเทคนิคตามทัน',
+        },
+        {
+          slideIndex: 2,
+          coverage: 'ครบประเด็น',
+          listenerTakeaway: 'เห็นภาพการใช้งานจริงทั้งโหมดเดี่ยว โหมดกลุ่ม และการดูประวัติพัฒนาการ',
+          suggestion: 'เชื่อมประโยคก่อนขึ้นเรื่องประวัติย้อนหลังเพื่อลดช่วงเงียบค้าง',
+        },
+        {
+          slideIndex: 3,
+          coverage: 'ครบประเด็น',
+          listenerTakeaway: 'สรุปผลลัพธ์และแนวทางต่อยอดได้ครบถ้วน ปิดจบได้อย่างมืออาชีพ',
+          suggestion: 'จังหวะปิดจบดีมาก ไม่มีคำติดปากและสบตากล้องสม่ำเสมอ',
+        },
+      ],
+    },
+  };
+}
 
 const GEMINI_COST_MAP = {
   '/api/gemini/check-slide': {
@@ -270,12 +412,19 @@ export function saveDemoSession(payload) {
 }
 
 export function listDemoSessions() {
-  return readJsonArray(KEY_SESSIONS).sort(
+  const userSessions = readJsonArray(KEY_SESSIONS).filter(
+    (s) => s?.id !== DEMO_PERMANENT_SESSION_ID,
+  );
+  const sortedUser = userSessions.sort(
     (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
   );
+  return [...sortedUser, buildPermanentDemoSession()];
 }
 
 export function getDemoSessionDetail(id) {
+  if (id === DEMO_PERMANENT_SESSION_ID) {
+    return buildPermanentDemoSession();
+  }
   const found = readJsonArray(KEY_SESSIONS).find((s) => s.id === id);
   if (!found) {
     throw new Error('ไม่พบประวัติการซ้อมนี้ในโหมด Demo');
