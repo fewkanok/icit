@@ -40,8 +40,10 @@ export function useGroupRtc({ socket, active, selfId, members }) {
   const [camEnabled, setCamEnabled] = useState(true);
   const [micGain, setMicGain] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem('rehearse_mic_gain'));
-      return Number.isFinite(saved) && saved >= 0 && saved <= 2 ? saved : 1;
+      const raw = localStorage.getItem('rehearse_mic_gain');
+      if (raw === null || raw === '') return 1;
+      const saved = Number(raw);
+      return Number.isFinite(saved) && saved > 0 && saved <= 2 ? saved : 1;
     } catch {
       return 1;
     }

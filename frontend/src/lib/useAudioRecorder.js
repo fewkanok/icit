@@ -31,8 +31,10 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
   const [deadAirStats, setDeadAirStats] = useState({ count: 0, totalSeconds: 0 });
   const [micGain, setMicGain] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem('rehearse_mic_gain'));
-      return Number.isFinite(saved) && saved >= 0 && saved <= 2 ? saved : 1;
+      const raw = localStorage.getItem('rehearse_mic_gain');
+      if (raw === null || raw === '') return 1;
+      const saved = Number(raw);
+      return Number.isFinite(saved) && saved > 0 && saved <= 2 ? saved : 1;
     } catch {
       return 1;
     }
@@ -127,6 +129,9 @@ export function useAudioRecorder({ silenceThreshold = 0.02, deadAirLimitSec = 2.
       // 1. ตั้งค่า Web Audio API สำหรับอ่านคลื่นเสียงและผสมเสียง TTS (ถ้ามี)
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioCtx();
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume().catch(() => {});
+      }
       audioContextRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
