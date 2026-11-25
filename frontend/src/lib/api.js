@@ -1,15 +1,31 @@
 import { supabase } from './supabase';
 import { recordGeminiCall, triggerGeminiCooldown } from './geminiRateLimit';
+import {
+  DEMO_AUTH_TOKEN,
+  deleteDemoSessions,
+  getDemoSessionDetail,
+  getDemoTokenBalance,
+  getDemoUser,
+  getDemoWallet,
+  getGeminiDemoCostMeta,
+  isDemoActive,
+  listDemoSessions,
+  saveDemoSession,
+  spendDemoTokens,
+} from './demoMode';
 
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 function handleAuthExpired(res, hadToken) {
-  if (res.status === 401 && hadToken && typeof window !== 'undefined') {
+  if (res.status === 401 && hadToken && !isDemoActive() && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('session-expired'));
   }
 }
 
 async function getAuthHeaders() {
+  if (isDemoActive()) {
+    return { Authorization: `Bearer ${DEMO_AUTH_TOKEN}` };
+  }
   if (!supabase) return {};
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
@@ -17,8 +33,15 @@ async function getAuthHeaders() {
 }
 
 async function postJson(path, body, timeoutMs = 30000) {
-  const authHeaders = await getAuthHeaders();
+  const demoMode = isDemoActive();
   const isGemini = path.startsWith('/api/gemini/');
+  const demoMeta = demoMode && isGemini ? getGeminiDemoCostMeta(path) : null;
+  if (demoMeta && getDemoTokenBalance() < demoMeta.cost) {
+    throw new Error(
+      'Token ในโหมด Demo ไม่เพียงพอ (คุณสามารถกด "ออกจากโหมด Demo / ล้างข้อมูล" แล้วเข้าใหม่เพื่อรีเซ็ต 50 Tokens)',
+    );
+  }
+  const authHeaders = await getAuthHeaders();
   if (isGemini) recordGeminiCall();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -53,7 +76,10 @@ async function postJson(path, body, timeoutMs = 30000) {
     }
     throw new Error(data.message || 'ไม่สามารถเชื่อมต่อระบบ AI ได้');
   }
-  if (typeof data?.tokenBalance === 'number' && typeof window !== 'undefined') {
+  if (demoMeta) {
+    const actualCost = typeof data?.demoCost === 'number' ? data.demoCost : demoMeta.cost;
+    data.tokenBalance = spendDemoTokens(actualCost, demoMeta.type, demoMeta.description);
+  } else if (typeof data?.tokenBalance === 'number' && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('tokens-updated', { detail: data.tokenBalance }));
   }
   return data;
@@ -71,24 +97,35 @@ async function getJson(path) {
 }
 
 export async function fetchMe(refCode) {
+  if (isDemoActive()) return getDemoUser();
   const query = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
   const data = await getJson(`/api/auth/me${query}`);
   return data.user;
 }
 
 export function fetchWallet() {
+  if (isDemoActive()) return Promise.resolve(getDemoWallet());
   return getJson('/api/tokens/wallet');
 }
 
 export function saveRehearsalSession(payload) {
+  if (isDemoActive()) return Promise.resolve(saveDemoSession(payload));
   return postJson('/api/sessions', payload);
 }
 
 export function fetchSessions() {
+  if (isDemoActive()) return Promise.resolve(listDemoSessions());
   return getJson('/api/sessions');
 }
 
 export function fetchSessionDetail(id) {
+  if (isDemoActive()) {
+    try {
+      return Promise.resolve(getDemoSessionDetail(id));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
   return getJson(`/api/sessions/${encodeURIComponent(id)}`);
 }
 
@@ -118,6 +155,9 @@ export async function deleteCloudVideo(sessionId) {
 }
 
 export async function deleteSessions(ids = null) {
+  if (isDemoActive()) {
+    return deleteDemoSessions(ids);
+  }
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/sessions`, {
     method: 'DELETE',
@@ -132,6 +172,9 @@ export async function deleteSessions(ids = null) {
 }
 
 export async function updateSessionShare(sessionId, isPublic) {
+  if (isDemoActive()) {
+    throw new Error('โหมด Demo เก็บข้อมูลเฉพาะในเบราว์เซอร์เครื่องนี้ ไม่รองรับการแชร์ลิงก์สาธารณะ');
+  }
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/share`, {
     method: 'PATCH',
@@ -155,6 +198,9 @@ export async function fetchPublicSession(shareId) {
 }
 
 export async function uploadSessionVideoToCloud(sessionId, blob) {
+  if (isDemoActive()) {
+    throw new Error('โหมด Demo บันทึกวิดีโอลงเครื่อง (IndexedDB) อัตโนมัติแล้ว ไม่ได้อัปโหลดขึ้นคลาวด์');
+  }
   if (!sessionId || !blob) {
     throw new Error('ไม่พบไฟล์วิดีโอสำหรับอัปโหลด');
   }

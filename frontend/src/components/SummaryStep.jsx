@@ -187,19 +187,24 @@ export default function SummaryStep({
     setAiLoading(true);
     setAiError(null);
     try {
+      const hasRehearsedSlides = Object.keys(results || {}).some((k) => Boolean(results[k]));
       const payload = {
         deckName: deck.name,
         audience,
-        slides: deck.slides.map((s, i) => ({
-          index: i,
-          title: s.title || `หน้า ${i + 1}`,
-          text: getSlideText(s),
-          transcript: results[i]?.transcript || '',
-          wpm: results[i]?.wpm || 0,
-          fillersCount: results[i]?.fillers?.total || 0,
-          deadAirCount: results[i]?.deadAir?.count || 0,
-          eyeContactPct: results[i]?.vision?.cameraUsed ? results[i].vision.eyeContactPct : null,
-        })),
+        slides: deck.slides
+          .map((s, i) => ({
+            index: i,
+            title: s.title || `หน้า ${i + 1}`,
+            text: getSlideText(s),
+            transcript: results[i]?.transcript || '',
+            wpm: results[i]?.wpm || 0,
+            fillersCount: results[i]?.fillers?.total || 0,
+            deadAirCount: results[i]?.deadAir?.count || 0,
+            eyeContactPct: results[i]?.vision?.cameraUsed ? results[i].vision.eyeContactPct : null,
+            hasResult: Boolean(results[i]),
+          }))
+          .filter((item) => (!hasRehearsedSlides ? true : item.hasResult))
+          .map(({ hasResult: _hasResult, ...rest }) => rest),
         qaResults: qaResults.map((q) => ({
           question: q.question,
           answerTranscript: q.answerTranscript,

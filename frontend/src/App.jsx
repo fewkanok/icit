@@ -6,6 +6,13 @@ import { ConfirmDialogHost, askConfirm, resetConfirmSuppressions } from './compo
 import { analyze } from './lib/metrics';
 import { API_BASE, fetchLangmindPreset, fetchMe } from './lib/api';
 import { signInWithGoogle, signOut, supabase } from './lib/supabase';
+import {
+  enterDemoMode,
+  exitAndClearDemoMode,
+  getDemoUser,
+  isDemoActive,
+  isDemoButtonVisible,
+} from './lib/demoMode';
 
 function lazyWithRetry(importer) {
   return lazy(async () => {
@@ -176,8 +183,9 @@ export default function App() {
   const [savedSessionId, setSavedSessionId] = useState(null);
   const [soloSeriesId, setSoloSeriesId] = useState(() => `solo_${Date.now().toString(36)}`);
   const [rehearsalIndex, setRehearsalIndex] = useState(0); // หน้าสไลด์ที่จะซ้อม
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(Boolean(supabase));
+  const demoButtonVisible = isDemoButtonVisible();
+  const [user, setUser] = useState(() => getDemoUser());
+  const [authLoading, setAuthLoading] = useState(() => Boolean(supabase) && !isDemoActive());
   const [signingIn, setSigningIn] = useState(false);
   const [authRetryNeeded, setAuthRetryNeeded] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
@@ -589,6 +597,14 @@ export default function App() {
 
     let active = true;
     const syncSession = async (session) => {
+      if (isDemoActive()) {
+        if (active) {
+          setUser(getDemoUser());
+          setAuthRetryNeeded(false);
+          setAuthLoading(false);
+        }
+        return;
+      }
       if (!session?.access_token) {
         if (active) {
           setUser(null);
@@ -682,7 +698,43 @@ export default function App() {
     }
   };
 
+  const handleEnterDemo = () => {
+    const demoUser = enterDemoMode();
+    if (demoUser) {
+      setUser(demoUser);
+      setAuthLoading(false);
+      setAuthRetryNeeded(false);
+      setSessionExpired(false);
+    }
+  };
+
   const handleSignOut = async () => {
+    if (user?.isDemo) {
+      const ok = await askConfirm({
+        title: 'ออกจากโหมด Demo และล้างข้อมูล?',
+        message:
+          'ประวัติการซ้อม คลิปเสียง/วิดีโอ และยอด Token ของโหมด Demo ในเบราว์เซอร์เครื่องนี้จะถูกล้างออกทั้งหมด ยืนยันหรือไม่?',
+        confirmText: 'ออกจากโหมด Demo / ล้างข้อมูล',
+        cancelText: 'ยกเลิก',
+        danger: true,
+      });
+      if (!ok) return;
+      await exitAndClearDemoMode();
+      setUser(null);
+      setAuthRetryNeeded(false);
+      setHistoryOpen(false);
+      setWalletOpen(false);
+      setSoloRoundsHistory([]);
+      setCompareAiCache({});
+      setResults({});
+      setInterruptResults({});
+      setQaResults([]);
+      setAiSummary(null);
+      setSavedSessionId(null);
+      setRehearsalIndex(0);
+      setStep('mode');
+      return;
+    }
     await signOut();
     setUser(null);
     setAuthRetryNeeded(false);
@@ -775,8 +827,10 @@ export default function App() {
         authLoading={authLoading}
         signingIn={signingIn}
         authRetryNeeded={authRetryNeeded}
+        demoButtonVisible={demoButtonVisible}
         onRetryAuth={handleRetryAuth}
         onSignIn={handleSignIn}
+        onEnterDemo={handleEnterDemo}
         onSignOut={handleSignOut}
         onOpenWallet={() => setWalletOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}

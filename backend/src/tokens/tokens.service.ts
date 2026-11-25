@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { DEMO_USER_ID } from '../auth/auth.guard.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export const TOKEN_COSTS = {
@@ -21,6 +22,9 @@ export class TokensService {
     type: string,
     description: string,
   ): Promise<number> {
+    if (userId === DEMO_USER_ID) {
+      return -1;
+    }
     if (cost <= 0) {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -65,7 +69,7 @@ export class TokensService {
     type: string,
     description: string,
   ): Promise<number> {
-    if (amount <= 0) return 0;
+    if (userId === DEMO_USER_ID || amount <= 0) return 0;
 
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.update({

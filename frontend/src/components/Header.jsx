@@ -15,8 +15,10 @@ export default function Header({
   authLoading,
   signingIn = false,
   authRetryNeeded = false,
+  demoButtonVisible = false,
   onRetryAuth,
   onSignIn,
+  onEnterDemo,
   onSignOut,
   onOpenWallet,
   onOpenHistory,
@@ -124,13 +126,22 @@ export default function Header({
                 <span className="hidden max-w-[120px] truncate text-xs font-medium text-ink lg:inline">
                   {user.name || user.email}
                 </span>
+                {user.isDemo && (
+                  <span className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    Demo Mode
+                  </span>
+                )}
               </div>
               <button
                 type="button"
                 onClick={onSignOut}
-                className="min-h-[38px] rounded-lg px-2.5 py-1.5 text-xs text-muted transition hover:bg-paper hover:text-ink cursor-pointer"
+                className={`min-h-[36px] shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition cursor-pointer ${
+                  user.isDemo
+                    ? 'border border-amber-300/80 bg-amber-50/70 font-medium text-amber-900 hover:bg-amber-100/80'
+                    : 'text-muted hover:bg-paper hover:text-ink'
+                }`}
               >
-                ออกจากระบบ
+                {user.isDemo ? 'ออกจากโหมด Demo / ล้างข้อมูล' : 'ออกจากระบบ'}
               </button>
             </>
           ) : authRetryNeeded ? (
@@ -142,13 +153,25 @@ export default function Header({
               เชื่อมต่อบัญชีอีกครั้ง
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={onSignIn}
-              className="min-h-[40px] rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-paper shadow-xs transition hover:bg-ink/85 cursor-pointer"
-            >
-              เข้าสู่ระบบด้วย Google
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="min-h-[40px] rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-paper shadow-xs transition hover:bg-ink/85 cursor-pointer"
+              >
+                เข้าสู่ระบบด้วย Google
+              </button>
+              {demoButtonVisible && onEnterDemo && (
+                <button
+                  type="button"
+                  onClick={onEnterDemo}
+                  className="min-h-[40px] rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 cursor-pointer"
+                  title="เข้าสู่โหมด Demo (สำหรับนำเสนอ)"
+                >
+                  โหมด Demo
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -188,9 +211,16 @@ export default function Header({
           ) : user ? (
             <>
               <div className="flex items-center justify-between rounded-xl bg-paper px-4 py-2.5">
-                <span className="truncate text-sm font-medium text-ink">
-                  {user.name || user.email}
-                </span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium text-ink">
+                    {user.name || user.email}
+                  </span>
+                  {user.isDemo && (
+                    <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                      Demo Mode
+                    </span>
+                  )}
+                </div>
                 <span className="font-mono text-xs font-semibold text-accent">
                   {user.tokenBalance ?? 0} Tokens
                 </span>
@@ -225,9 +255,13 @@ export default function Header({
                   setMobileMenuOpen(false);
                   onSignOut();
                 }}
-                className="flex min-h-[44px] w-full items-center justify-center rounded-xl text-sm text-muted hover:bg-paper hover:text-ink cursor-pointer"
+                className={`flex min-h-[44px] w-full items-center justify-center rounded-xl text-sm cursor-pointer ${
+                  user.isDemo
+                    ? 'border border-amber-300 bg-amber-50 font-medium text-amber-900 hover:bg-amber-100'
+                    : 'text-muted hover:bg-paper hover:text-ink'
+                }`}
               >
-                ออกจากระบบ
+                {user.isDemo ? 'ออกจากโหมด Demo / ล้างข้อมูล' : 'ออกจากระบบ'}
               </button>
             </>
           ) : authRetryNeeded ? (
@@ -242,16 +276,30 @@ export default function Header({
               เชื่อมต่อบัญชีอีกครั้ง
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setMobileMenuOpen(false);
-                onSignIn();
-              }}
-              className="flex min-h-[48px] w-full items-center justify-center rounded-xl bg-ink text-sm font-semibold text-paper cursor-pointer"
-            >
-              เข้าสู่ระบบด้วย Google
-            </button>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onSignIn();
+                }}
+                className="flex min-h-[48px] w-full items-center justify-center rounded-xl bg-ink text-sm font-semibold text-paper cursor-pointer"
+              >
+                เข้าสู่ระบบด้วย Google
+              </button>
+              {demoButtonVisible && onEnterDemo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onEnterDemo();
+                  }}
+                  className="flex min-h-[46px] w-full items-center justify-center rounded-xl border border-amber-300 bg-amber-50 text-sm font-semibold text-amber-900 hover:bg-amber-100 cursor-pointer"
+                >
+                  เข้าสู่โหมด Demo (สำหรับนำเสนอ)
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

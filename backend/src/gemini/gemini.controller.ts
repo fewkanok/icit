@@ -1,6 +1,6 @@
 import { BadGatewayException, Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { SupabaseAuthGuard, type AuthUserPayload } from '../auth/auth.guard.js';
+import { DEMO_USER_ID, SupabaseAuthGuard, type AuthUserPayload } from '../auth/auth.guard.js';
 import { TOKEN_COSTS, TokensService } from '../tokens/tokens.service.js';
 import {
   CheckSlideDto,
@@ -27,7 +27,11 @@ export class GeminiController {
     type: string,
     description: string,
     fn: () => Promise<T>,
-  ): Promise<Record<string, unknown> & { tokenBalance: number }> {
+  ): Promise<Record<string, unknown>> {
+    if (userId === DEMO_USER_ID) {
+      const result = await fn();
+      return { ...(result as Record<string, unknown>), demoCost: cost };
+    }
     const tokenBalance = await this.tokensService.spendTokens(userId, cost, type, description);
     try {
       const result = await fn();

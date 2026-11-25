@@ -788,7 +788,7 @@ export default function GroupStageView({
       await stopAndUploadCurrent();
       const clips = await fetchGroupClips(room.code).catch(() => []);
       const clipBySlide = new Map(clips.map((c) => [c.slideIndex, c]));
-      const slideSummaries = slides.map((s, idx) => {
+      const allSlideSummaries = slides.map((s, idx) => {
         const c = clipBySlide.get(idx);
         const owner = assignments[idx] ? memberMap.get(assignments[idx]) : null;
         const speakerName = c?.memberName || owner?.name || '';
@@ -799,8 +799,14 @@ export default function GroupStageView({
           title: s.title || `สไลด์หน้า ${idx + 1}`,
           text: s.text || (Array.isArray(s.points) ? s.points.join(', ') : ''),
           transcript,
+          hasRecorded: Boolean(c || slideResults[idx]?.transcript),
         };
       });
+      const hasAnyRecorded = allSlideSummaries.some((item) => item.hasRecorded);
+      const slideSummaries = (hasAnyRecorded
+        ? allSlideSummaries.filter((item) => item.hasRecorded)
+        : allSlideSummaries
+      ).map(({ hasRecorded: _hasRecorded, ...rest }) => rest);
 
       const qaMins = Number(room.settings?.qaMins ?? 5);
       const questionCount =

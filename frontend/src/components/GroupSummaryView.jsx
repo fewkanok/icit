@@ -516,24 +516,30 @@ export default function GroupSummaryView({
     setAiLoading(true);
     setAiError('');
     try {
+      const allSlidesPayload = slides.map((s, idx) => {
+        const c = clipMap.get(idx);
+        const a = c?.analysis || {};
+        const speakerPrefix = c?.memberName ? `[ผู้พูด: ${c.memberName}] ` : '';
+        return {
+          index: idx,
+          title: s.title || `สไลด์หน้า ${idx + 1}`,
+          text: s.text || (Array.isArray(s.points) ? s.points.join(', ') : ''),
+          transcript: a.transcript ? `${speakerPrefix}${a.transcript}` : '',
+          wpm: a.wpm || 0,
+          fillersCount: a.fillers?.total || 0,
+          deadAirCount: a.deadAir?.count || 0,
+          eyeContactPct: a.vision?.cameraUsed ? a.vision.eyeContactPct : null,
+          hasClip: Boolean(c),
+        };
+      });
+      const hasAnyClip = allSlidesPayload.some((item) => item.hasClip);
       const payload = {
         deckName: room.deckName || 'ชุดสไลด์พรีเซนต์กลุ่ม',
         audience: room.settings?.audience || 'general',
-        slides: slides.map((s, idx) => {
-          const c = clipMap.get(idx);
-          const a = c?.analysis || {};
-          const speakerPrefix = c?.memberName ? `[ผู้พูด: ${c.memberName}] ` : '';
-          return {
-            index: idx,
-            title: s.title || `สไลด์หน้า ${idx + 1}`,
-            text: s.text || (Array.isArray(s.points) ? s.points.join(', ') : ''),
-            transcript: a.transcript ? `${speakerPrefix}${a.transcript}` : '',
-            wpm: a.wpm || 0,
-            fillersCount: a.fillers?.total || 0,
-            deadAirCount: a.deadAir?.count || 0,
-            eyeContactPct: a.vision?.cameraUsed ? a.vision.eyeContactPct : null,
-          };
-        }),
+        slides: (hasAnyClip
+          ? allSlidesPayload.filter((item) => item.hasClip)
+          : allSlidesPayload
+        ).map(({ hasClip: _hasClip, ...rest }) => rest),
         qaResults: qaQuestions.map((q, qIdx) => ({
           question: q.question,
           answerTranscript: qaAnswers[qIdx]?.transcript

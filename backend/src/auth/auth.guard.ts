@@ -6,11 +6,15 @@ import {
 } from '@nestjs/common';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+export const DEMO_USER_ID = 'demo-presenter';
+export const DEMO_AUTH_TOKEN = 'demo-mode-token';
+
 export interface AuthUserPayload {
   id: string;
   email: string;
   name?: string;
   avatarUrl?: string;
+  isDemo?: boolean;
 }
 
 @Injectable()
@@ -41,6 +45,16 @@ export class SupabaseAuthGuard implements CanActivate {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!token) {
       throw new UnauthorizedException('กรุณาเข้าสู่ระบบด้วย Google ก่อนใช้งานฟีเจอร์ AI');
+    }
+
+    if (token === DEMO_AUTH_TOKEN && process.env.ENABLE_DEMO_MODE !== 'false') {
+      req.user = {
+        id: DEMO_USER_ID,
+        email: 'demo@zomgon.local',
+        name: 'Demo Presenter',
+        isDemo: true,
+      };
+      return true;
     }
 
     const { data, error } = await this.getSupabase().auth.getUser(token);

@@ -75,32 +75,42 @@ export default function WalletModal({ open, onClose }) {
 
             {error && <p className="text-xs text-accent">{error}</p>}
 
-            {/* ชวนเพื่อน */}
-            <div className="rounded-xl border border-line p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-ink">ชวนเพื่อนรับเพิ่ม +10 Tokens ทั้งคู่</h3>
-                <span className="font-mono text-[11px] text-muted">
-                  {wallet?.referralCount ?? 0}/{wallet?.maxReferrals ?? 10} คน
-                </span>
+            {wallet?.isDemo ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-1">
+                <h3 className="text-xs font-semibold text-amber-900">โหมด Demo (สำหรับนำเสนอ)</h3>
+                <p className="text-[11px] leading-relaxed text-amber-800">
+                  บัญชีจำลอง Demo Presenter ได้รับเครดิตตั้งต้น 50 Tokens สำหรับใช้งานฟีเจอร์ AI จริงระหว่างนำเสนอ
+                  และข้อมูลทั้งหมดเก็บเฉพาะในเบราว์เซอร์เครื่องนี้
+                </p>
               </div>
-              <p className="text-[11px] text-muted">
-                เพื่อนต้องเข้าสู่ระบบผ่านลิงก์นี้และซ้อมจบอย่างน้อย 1 รอบ (30 วินาทีขึ้นไป)
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={referralUrl}
-                  className="w-full rounded-lg border border-line bg-paper px-3 py-1.5 font-mono text-[11px] text-ink"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-paper hover:bg-ink/85 cursor-pointer"
-                >
-                  {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
-                </button>
+            ) : (
+              /* ชวนเพื่อน */
+              <div className="rounded-xl border border-line p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-ink">ชวนเพื่อนรับเพิ่ม +10 Tokens ทั้งคู่</h3>
+                  <span className="font-mono text-[11px] text-muted">
+                    {wallet?.referralCount ?? 0}/{wallet?.maxReferrals ?? 10} คน
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  เพื่อนต้องเข้าสู่ระบบผ่านลิงก์นี้และซ้อมจบอย่างน้อย 1 รอบ (30 วินาทีขึ้นไป)
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={referralUrl}
+                    className="w-full rounded-lg border border-line bg-paper px-3 py-1.5 font-mono text-[11px] text-ink"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="shrink-0 rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-paper hover:bg-ink/85 cursor-pointer"
+                  >
+                    {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ประวัติธุรกรรม */}
             <div className="space-y-2">

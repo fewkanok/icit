@@ -172,12 +172,17 @@ export default function QaStep({
     setError(null);
     try {
       if (!generatePromiseRef.current) {
-        const slidesPayload = deck.slides.map((s, i) => ({
-          index: i,
-          title: s.title || `หน้า ${i + 1}`,
-          text: getSlideText(s),
-          transcript: results[i]?.transcript || '',
-        }));
+        const hasRehearsedSlides = Object.keys(results || {}).some((k) => Boolean(results[k]));
+        const slidesPayload = deck.slides
+          .map((s, i) => ({
+            index: i,
+            title: s.title || `หน้า ${i + 1}`,
+            text: getSlideText(s),
+            transcript: results[i]?.transcript || '',
+            hasResult: Boolean(results[i]),
+          }))
+          .filter((item) => (!hasRehearsedSlides ? true : item.hasResult))
+          .map(({ hasResult: _hasResult, ...rest }) => rest);
         const qaMins = timeBudget?.qaMinutes || 0;
         const questionCount =
           qaMins <= 0 ? 3 : Math.min(8, Math.max(2, Math.round((qaMins * 60) / 50)));
